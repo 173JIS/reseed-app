@@ -17,6 +17,8 @@ import folium
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
+from scipy.ndimage import uniform_filter
+from sklearn.cluster import KMeans
 
 # ── 경로 설정 ──────────────────────────────────────────────
 BASE     = Path(__file__).parent
@@ -174,44 +176,117 @@ def make_mission(bounds: tuple, spacing_m: float = 2, margin: float = 0.04,
     return {"path": path_pts, "markers": grid,
             "n_lines": len(ys), "n_way": n_way, "spacing_m": spacing_m}
 
-@st.cache_data
-def zone_tif_overlay() -> tuple[str | None, tuple | None]:
-    """구역 TIF → base64 PNG (folium ImageOverlay용)"""
-    if not ZONE_TIF.exists():
+@st.cache_data(show_spinner=False)
+def classify_zones_from_tif(tif_key: str, tif_bytes: bytes | None,
+                             max_px: int = 300):
+    """
+    드론 TIF → 4구역 분류 배열
+    tif_key : 캐시 키 (파일명 or 'demo')
+    Returns : (zone_arr uint8, bounds_wgs84) or (None, None)
+    zone_arr values: 1=S1 2=S2 3=S3 4=S4  0=nodata
+    """
+    try:
+        src = rasterio.open(io.BytesIO(tif_bytes)) if tif_bytes else rasterio.open(DEMO_TIF)
+        with src:
+            H, W = src.height, src.width
+            scale = max_px / max(H, W)
+            oh, ow = max(4, int(H * scale)), max(4, int(W * scale))
+            n = min(src.count, 3)
+            data = src.read(
+                indexes=list(range(1, n + 1)),
+                out_shape=(n, oh, ow),
+                resampling=rasterio.enums.Resampling.average,
+            ).astype(np.float32)
+            # nodata mask
+            if src.count >= 4:
+                alpha = src.read(4, out_shape=(1, oh, ow),
+                                 resampling=rasterio.enums.Resampling.nearest)[0]
+                nodata = alpha == 0
+            else:
+                nodata = (data[0] == 0) & (data[1] == 0) & (data[2] == 0)
+            # WGS84 bounds
+            bnds = src.bounds
+            if src.crs and src.crs.to_epsg() != 4326:
+                b = transform_bounds(src.crs, "EPSG:4326", *bnds)
+            else:
+                b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
+
+        R, G, B = data[0], data[1], data[2]
+        total   = R + G + B + 1e-6
+        gcc     = G / total
+        bright  = total / (3 * 255)
+        gcc_mean = uniform_filter(gcc, size=7)
+        texture  = np.sqrt(np.maximum(
+            uniform_filter(gcc ** 2, size=7) - gcc_mean ** 2, 0))
+
+        valid  = ~nodata
+        if valid.sum() < 10:
+            return None, None
+
+        # S1: 밝고 초록 적음 → 맨땅/도로
+        br_th  = np.percentile(bright[valid], 70)
+        gc_th  = np.percentile(gcc[valid],   30)
+        s1     = valid & (bright > br_th) & (gcc < gc_th)
+        veg    = valid & ~s1
+
+        zone = np.zeros((oh, ow), dtype=np.uint8)
+        zone[s1] = 1
+
+        if veg.sum() >= 30:
+            feats  = np.column_stack([gcc[veg], texture[veg]])
+            labels = KMeans(n_clusters=3, random_state=42, n_init=10).fit_predict(feats)
+            means  = [feats[labels == k, 0].mean() for k in range(3)]
+            rank   = np.argsort(np.argsort(means))   # 낮은 gcc → S2, 높은 gcc → S4
+            lbl    = np.full((oh, ow), -1, dtype=np.int8)
+            lbl[veg] = labels
+            for k in range(3):
+                zone[lbl == k] = int(rank[k]) + 2
+        elif veg.sum() > 0:
+            zone[veg] = 2
+
+        zone[nodata] = 0
+        return zone, b
+    except Exception:
         return None, None
-    with rasterio.open(ZONE_TIF) as src:
-        data = src.read(1)
-        bnds = src.bounds
-        b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
-    h, w = data.shape
+
+
+def zone_array_to_overlay(zone_arr: np.ndarray, bounds: tuple):
+    """Zone 배열 → base64 PNG (folium ImageOverlay용)"""
+    h, w = zone_arr.shape
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     for val, s in ZONE_VAL_MAP.items():
-        mask = data == val
-        rgb = ZONE_PAL_RGB[s]
-        rgba[mask, 0] = rgb[0]
-        rgba[mask, 1] = rgb[1]
-        rgba[mask, 2] = rgb[2]
-        rgba[mask, 3] = 140  # 반투명
-    img = Image.fromarray(rgba, "RGBA")
+        mask = zone_arr == val
+        rgb  = ZONE_PAL_RGB[s]
+        rgba[mask, 0] = rgb[0]; rgba[mask, 1] = rgb[1]
+        rgba[mask, 2] = rgb[2]; rgba[mask, 3] = 140
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    Image.fromarray(rgba, "RGBA").save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
-    return f"data:image/png;base64,{b64}", b
+    return f"data:image/png;base64,{b64}", bounds
 
-def sample_zone_at_points(markers: list[tuple]) -> list[str | None]:
-    """드롭점 좌표 → 해당 구역 코드 반환"""
-    if not ZONE_TIF.exists():
-        return [None] * len(markers)
-    with rasterio.open(ZONE_TIF) as src:
-        coords = [(lon, lat) for lat, lon in markers]
-        vals = [v[0] for v in src.sample(coords)]
-    return [ZONE_VAL_MAP.get(int(v), None) if not np.isnan(v) else None for v in vals]
+
+def sample_zone_array(zone_arr: np.ndarray, bounds: tuple,
+                      markers: list[tuple]) -> list:
+    """드롭점 (lat,lon) → 해당 구역 코드"""
+    xmn, ymn, xmx, ymx = bounds
+    h, w = zone_arr.shape
+    out = []
+    for lat, lon in markers:
+        col = int((lon - xmn) / (xmx - xmn) * w)
+        row = int((ymx - lat) / (ymx - ymn) * h)
+        if 0 <= col < w and 0 <= row < h:
+            v = int(zone_arr[row, col])
+            out.append(ZONE_VAL_MAP.get(v) if v != 0 else None)
+        else:
+            out.append(None)
+    return out
 
 
 # ════════════════════════════════════════════════════════════
 # 지도 생성
 # ════════════════════════════════════════════════════════════
-def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2) -> str:
+def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
+              zone_arr=None, zone_bounds=None) -> str:
     lat_c, lon_c = meta["lat_c"], meta["lon_c"]
     b = meta["bounds"]
 
@@ -224,12 +299,12 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2) -> str:
                      color="#f1c40f", weight=2, fill=False,
                      name="대상지").add_to(m)
 
-    # 구역 오버레이
-    png_data, zone_bnds = zone_tif_overlay()
-    if png_data and zone_bnds:
+    # 구역 오버레이 (동적 분류 결과)
+    if zone_arr is not None and zone_bounds is not None:
+        png_data, zb = zone_array_to_overlay(zone_arr, zone_bounds)
         folium.raster_layers.ImageOverlay(
             image=png_data,
-            bounds=[[zone_bnds[1], zone_bnds[0]], [zone_bnds[3], zone_bnds[2]]],
+            bounds=[[zb[1], zb[0]], [zb[3], zb[2]]],
             opacity=0.5, name="복원 구역",
         ).add_to(m)
 
@@ -243,7 +318,10 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2) -> str:
     tops = {s: (recommend_for(lib, s, 1)["name_kor"].iloc[0]
                 if len(recommend_for(lib, s, 1)) > 0 else "-")
             for s in ZONE_CODE}
-    zone_codes = sample_zone_at_points(ms["markers"])
+    if zone_arr is not None and zone_bounds is not None:
+        zone_codes = sample_zone_array(zone_arr, zone_bounds, ms["markers"])
+    else:
+        zone_codes = [None] * len(ms["markers"])
     drop_fg = folium.FeatureGroup(name="드롭점(뿌릴 종)", show=True)
     for (lat, lon), s in zip(ms["markers"], zone_codes):
         color = ZONE_PAL.get(s, "#888888") if s else "#888888"
@@ -384,6 +462,12 @@ with tab1:
                 st.session_state["meta"] = meta
                 ms = make_mission(meta["bounds"], spacing_m)
                 st.session_state["ms"] = ms
+                # ── 구역 자동 분류 ──────────────────────────
+                tif_key = uploaded.name if uploaded else "demo"
+                with st.spinner("🛰 드론 영상에서 복원 구역 분류 중…"):
+                    z_arr, z_bnds = classify_zones_from_tif(tif_key, tif_bytes)
+                st.session_state["zone_arr"]    = z_arr
+                st.session_state["zone_bounds"] = z_bnds
                 st.info(
                     f"📍 중심: {meta['lat_c']:.5f}°N, {meta['lon_c']:.5f}°E  \n"
                     f"📐 범위: {meta['w_m']:.0f} m × {meta['h_m']:.0f} m ≈ **{meta['area_ha']:.2f} ha**  \n"
@@ -407,7 +491,9 @@ with tab1:
 
             # 지도
             with st.spinner("🛰 지도 생성 중…"):
-                map_html = build_map(meta, lib, spacing_m)
+                map_html = build_map(meta, lib, spacing_m,
+                                     zone_arr=st.session_state.get("zone_arr"),
+                                     zone_bounds=st.session_state.get("zone_bounds"))
             st.components.v1.html(map_html, height=440, scrolling=False)
 
             st.divider()
