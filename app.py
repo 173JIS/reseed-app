@@ -22,6 +22,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
 from streamlit_folium import st_folium
+from branca.element import MacroElement
+from jinja2 import Template as JinjaTemplate
 
 # ── 경로 설정 ──────────────────────────────────────────────
 BASE       = Path(__file__).parent
@@ -575,17 +577,25 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
         ).add_to(drop_fg)
     drop_fg.add_to(m)
 
-    # 범례
-    legend = ('<div style="position:fixed;bottom:30px;right:10px;z-index:1000;'
-              'background:white;padding:10px;border-radius:6px;font-size:12px;'
-              'border:1px solid #ccc;min-width:180px;">'
-              '<b>🎨 어디에 무엇을</b><br>')
-    for s in ZONE_CODE:
-        legend += (f'<span style="background:{ZONE_PAL[s]};display:inline-block;'
-                   f'width:12px;height:12px;margin-right:5px;border-radius:2px;"></span>'
-                   f'{ZONE_NAME[s].replace(" 구역","")} → <b>{tops.get(s,"-")}</b><br>')
-    legend += '</div>'
-    m.get_root().html.add_child(folium.Element(legend))
+    # 범례 — MacroElement로 leaflet 맵 컨테이너 안에 오버레이
+    legend_rows = "".join(
+        f'<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
+        f'<span style="background:{ZONE_PAL[s]};width:12px;height:12px;'
+        f'border-radius:2px;flex-shrink:0;"></span>'
+        f'<span>{ZONE_NAME[s].replace(" 구역","")} → <b>{tops.get(s,"-")}</b></span></div>'
+        for s in ZONE_CODE
+    )
+    legend_html = (
+        '<div style="position:absolute;bottom:30px;right:10px;z-index:9999;'
+        'background:rgba(255,255,255,0.93);padding:10px 12px;border-radius:7px;'
+        'font-size:12px;border:1px solid #ccc;min-width:170px;'
+        'box-shadow:0 2px 6px rgba(0,0,0,.18);">'
+        '<b style="font-size:13px;">🎨 어디에 무엇을</b>'
+        f'{legend_rows}</div>'
+    )
+    macro = MacroElement()
+    macro._template = JinjaTemplate("{% macro html(this, kwargs) %}" + legend_html + "{% endmacro %}")
+    macro.add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
     m.fit_bounds([[b[1], b[0]], [b[3], b[2]]])
@@ -858,7 +868,7 @@ with tab1:
                 folium_map = build_map(meta, lib, spacing_m,
                                       layers=_layers,
                                       tops=tops)
-            st_folium(folium_map, height=440, returned_objects=[])
+            st_folium(folium_map, height=520, use_container_width=True, returned_objects=[])
             with st.expander("🗺 지도 레이어 설명"):
                 st.markdown(
                     "지도 우상단 레이어 컨트롤에서 각 레이어를 켜고 끌 수 있습니다.\n\n"
