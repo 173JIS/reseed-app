@@ -1,0 +1,52 @@
+﻿seedball_id,plant_id,name_kor,name_sci,form_grp,height_cl,form_grp_ref,form_match_ref,confidence,stock,channel_cnt,op_sourcing,op_establishment,op_safe_growth,c_percent,s_percent,r_percent,strategy_class,op_establishment_src,op_establishment_qual,op_safe_growth_src,op_safe_growth_qual,op_sourcing_src,op_mean,op_db_source
+SB-001,815,팥배나무,Sorbus alnifolia (Siebold & Zucc.) K. Koch,교목,높음,교목,True,낮음,250.0,3.0,1.0,0.49,0.84,27,65,8,S/CS,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.78,trait_kor_mean__20260608_154742.xlsx
+SB-002,922,쑥,Artemisia indica Willd.,초본,낮음,,,중,350.0,2.0,0.5,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-003,1369,솔새,Themeda triandra Forssk.,초본,낮음,초본,True,중,300.0,2.0,0.5,0.54,0.4,20,64,17,S/CSR,CSR_R,measured,invasive_list,measured,DUMMY_external_pending,0.48,trait_kor_mean__20260608_154742.xlsx
+SB-004,1375,기름새,Spodipogon cotulifer (Thunb.) Hack.,초본,낮음,초본,True,낮음,250.0,2.0,0.5,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-005,1465,억새,Miscanthus sinensis Andersson,초본,낮음,초본,True,중,200.0,2.0,0.5,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-006,1510,김의털,Festuca ovina L.,초본,낮음,초본,True,중,350.0,2.0,0.5,0.59,1.0,0,74,25,S/SR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.7,trait_kor_mean__20260608_154742.xlsx
+SB-007,1522,그령,Eragrostis ferruginea (Thunb.) P. Beauv.,초본,낮음,초본,True,낮음,250.0,2.0,0.5,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-008,1580,새,Arundinella hirta (Thunb.) Tanaka,초본,낮음,초본,True,낮음,350.0,3.0,1.0,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.7,trait_kor_mean__20260608_154742.xlsx
+SB-009,2151,구절초,Dendranthema zawadskii var. latilobum (Maxim.) Kitam.,초본,낮음,초본,True,낮음,200.0,1.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-010,2258,맑은대쑥,Artemisia keiskeana Miq.,초본,낮음,초본,True,낮음,300.0,3.0,1.0,0.6,0.7,50,23,28,C/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.77,trait_kor_mean__20260608_154742.xlsx
+SB-011,2327,병꽃나무,Weigela subsessilis (Nakai) L. H. Bailey,관목,중,교목,False,중,250.0,3.0,1.0,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.82,trait_kor_mean__20260608_154742.xlsx
+SB-012,2515,쥐똥나무,Ligustrum obtusifolium Siebold & Zucc.,관목,중,덩굴,False,중,200.0,2.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-013,2522,물푸레나무,Fraxinus rhynchophylla Hance,교목,높음,교목,True,높음,200.0,3.0,1.0,0.59,0.72,47,28,26,C/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.77,trait_kor_mean__20260608_154742.xlsx
+SB-014,2523,들메나무,Fraxinus mandshurica Rupr.,교목,높음,교목,True,높음,250.0,1.0,0.5,0.58,0.68,54,23,23,C/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.59,trait_kor_mean__20260608_154742.xlsx
+SB-015,2880,산초나무,Zanthoxylum schinifolium Siebold & Zucc.,관목,중,관목,True,낮음,250.0,1.0,0.5,0.58,0.89,19,57,24,S/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.66,trait_kor_mean__20260608_154742.xlsx
+SB-016,2900,붉나무,Rhus javanica L.,관목,중,,,중,200.0,3.0,1.0,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.82,trait_kor_mean__20260608_154742.xlsx
+SB-017,2910,고로쇠나무,Acer pictum var. mono (Maxim.) Franch.,교목,높음,교목,True,낮음,350.0,1.0,0.5,0.65,0.68,53,10,36,CR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.61,trait_kor_mean__20260608_154742.xlsx
+SB-018,2997,화살나무,Euonymus alatus (Thunb.) Siebold,관목,중,관목,True,중,150.0,1.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-019,3138,조록싸리,Lespedeza maximowiczii C. K. Schneid.,관목,중,덩굴,False,중,200.0,1.0,0.5,0.7,0.4,42,12,46,CR/CSR,CSR_R,imputed,invasive_list,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-020,3148,싸리,Lespedeza bicolor Turcz.,관목,중,초본,False,중,350.0,2.0,0.5,0.65,0.4,13,50,37,SR/CSR,CSR_R,measured,invasive_list,measured,DUMMY_external_pending,0.52,trait_kor_mean__20260608_154742.xlsx
+SB-021,3199,국수나무,Stephanandra incisa (Thunb.) Zabel,관목,중,관목,True,낮음,100.0,2.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-022,3288,산벚나무,Prunus sargentii Rehder,교목,높음,관목,False,중,350.0,1.0,0.5,0.52,0.83,29,59,12,S/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.62,trait_kor_mean__20260608_154742.xlsx
+SB-023,3500,노린재나무,Symplocos sawafutagi Nagam.,관목,중,,,없음,100.0,3.0,1.0,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.82,trait_kor_mean__20260608_154742.xlsx
+SB-024,3504,쪽동백나무,Styrax obassia Siebold & Zucc.,교목,높음,,,없음,300.0,1.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-025,3505,때죽나무,Styrax japonicus Siebold & Zucc.,교목,높음,,,없음,350.0,2.0,0.5,0.6,0.87,22,50,27,S/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.66,trait_kor_mean__20260608_154742.xlsx
+SB-026,3526,정금나무,Vaccinium oldhamii Miq.,관목,중,관목,True,중,350.0,2.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-027,3531,산철쭉,Rhododendron yedoense f. poukhanense (H. Lév.) M. Sugim.,관목,중,관목,True,낮음,250.0,1.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-028,3535,철쭉,Rhododendron schlippenbachii Maxim.,관목,중,덩굴,False,중,100.0,2.0,0.5,0.63,0.7,50,18,33,C/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.61,trait_kor_mean__20260608_154742.xlsx
+SB-029,3538,진달래,Rhododendron mucronulatum Turcz.,관목,중,교목,False,중,250.0,2.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-030,3916,패랭이꽃,Dianthus chinensis L.,초본,낮음,초본,True,중,250.0,2.0,0.5,0.51,0.97,5,85,10,S,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.66,trait_kor_mean__20260608_154742.xlsx
+SB-031,3987,박달나무,Betula schmidtii Regel,교목,높음,교목,True,높음,300.0,1.0,0.5,0.65,0.84,26,38,36,CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.66,trait_kor_mean__20260608_154742.xlsx
+SB-032,3988,자작나무,Betula pendula Roth,교목,높음,교목,True,높음,350.0,2.0,0.5,0.56,0.85,26,54,20,S/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.64,trait_kor_mean__20260608_154742.xlsx
+SB-033,3993,거제수나무,Betula costata Trautv.,교목,높음,교목,True,높음,250.0,1.0,0.5,0.7,0.75,42,12,46,CR/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.65,trait_kor_mean__20260608_154742.xlsx
+SB-034,4004,굴참나무,Quercus variabilis Blume,교목,높음,교목,True,높음,100.0,3.0,1.0,0.55,0.67,55,27,18,C/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.74,trait_kor_mean__20260608_154742.xlsx
+SB-035,4005,졸참나무,Quercus serrata Murray,교목,높음,교목,True,높음,150.0,1.0,0.5,0.53,0.87,21,65,14,S/CS,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.63,trait_kor_mean__20260608_154742.xlsx
+SB-036,4012,신갈나무,Quercus mongolica Fisch. ex Ledeb.,교목,높음,교목,True,높음,150.0,2.0,0.5,0.53,0.74,43,43,14,CS/CSR,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.59,trait_kor_mean__20260608_154742.xlsx
+SB-037,4018,떡갈나무,Quercus dentata Thunb.,교목,높음,교목,True,높음,100.0,2.0,0.5,0.48,0.62,64,30,6,C/CS,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.53,trait_kor_mean__20260608_154742.xlsx
+SB-038,4019,갈참나무,Quercus aliena Blume,교목,높음,교목,True,높음,150.0,3.0,1.0,0.51,0.71,48,42,10,CS,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.74,trait_kor_mean__20260608_154742.xlsx
+SB-039,4021,상수리나무,Quercus acutissima Carruth.,교목,높음,교목,True,높음,250.0,2.0,0.5,0.47,0.85,25,71,4,S/CS,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.61,trait_kor_mean__20260608_154742.xlsx
+SB-040,4068,산뽕나무,Morus bombycis Koidz.,교목,높음,교목,True,낮음,150.0,1.0,0.5,0.54,0.74,44,40,16,CS/CSR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.59,trait_kor_mean__20260608_154742.xlsx
+SB-041,4080,느티나무,Zelkova serrata (Thunb.) Makino,교목,높음,교목,True,높음,400.0,1.0,0.5,0.49,0.87,21,71,7,S/CS,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.62,trait_kor_mean__20260608_154742.xlsx
+SB-042,4314,생강나무,Lindera obtusiloba Blume,관목,중,관목,True,낮음,200.0,1.0,0.5,0.67,0.69,51,9,40,CR,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.62,trait_kor_mean__20260608_154742.xlsx
+SB-043,4355,곰솔,Pinus thunbergii Parl.,교목,높음,교목,True,높음,150.0,3.0,1.0,0.45,0.96,7,93,0,S,CSR_R,measured,CSR_C,measured,DUMMY_external_pending,0.8,trait_kor_mean__20260608_154742.xlsx
+SB-044,4365,소나무,Pinus densiflora Siebold & Zucc.,교목,높음,교목,True,높음,300.0,1.0,0.5,0.45,0.89,18,82,0,S/CS,CSR_R,imputed,CSR_C,imputed,DUMMY_external_pending,0.61,trait_kor_mean__20260608_154742.xlsx
+SB045,SB045,돌콩,Glycine soja,초본,,,,DB실측,,,0.5,0.64,0.77,39,27,34,,,,,,,0.71,
+SB046,SB046,비수리,Lespedeza cuneata,초본,,,,DB실측,,,0.5,0.57,0.96,6,71,22,,,,,,,0.76,
+SB047,SB047,토끼풀,Trifolium repens,초본,,,,DB실측,,,0.5,0.7,0.88,20,35,45,,,,,,,0.79,
+SB048,SB048,벌개미취,Aster koraiensis,초본,,,,DB실측,,,0.5,0.59,0.79,35,39,26,,,,,,,0.69,
+SB049,SB049,찔레나무,Rosa multiflora,관목,,,,DB실측,,,0.5,0.61,0.79,35,36,29,,,,,,,0.7,
+SB050,SB050,수크령,Pennisetum alopecuroides,초본,,,,DB실측,,,0.5,0.67,0.9,16,45,40,,,,,,,0.79,
+SB051,SB051,오리나무,Alnus japonica,교목,,,,DB실측,,,0.5,0.5,0.87,21,70,9,,,,,,,0.69,
