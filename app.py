@@ -6,6 +6,9 @@ import math
 import io
 import base64
 import datetime
+import tempfile
+import os
+import platform
 from pathlib import Path
 
 import numpy as np
@@ -17,15 +20,18 @@ import folium
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
-from scipy.ndimage import uniform_filter
-from sklearn.cluster import KMeans
 
 # ── 경로 설정 ──────────────────────────────────────────────
-BASE     = Path(__file__).parent
-DATA     = BASE / "data"
-LIB_CSV  = DATA / "seedball_library.csv"
-ZONE_TIF = DATA / "n3a_situations_4326.tif"
-DEMO_TIF = DATA / "result_small.tif"
+BASE       = Path(__file__).parent
+DATA       = BASE / "data"
+LIB_CSV    = DATA / "seedball_library.csv"
+ZONE_TIF   = DATA / "n3a_situations_4326.tif"
+DEMO_TIF   = DATA / "result_small.tif"
+# TraitX DB: 환경변수 > data/ 로컬 복사본 > Windows 개발 경로 순 fallback
+_traitx_win = Path(r"C:\Users\Intern\OneDrive\Desktop\Rstudio\결과물\trait_kor_mean.xlsx")
+TRAITX_DB   = Path(os.environ.get("TRAITX_DB", str(_traitx_win)))
+if not TRAITX_DB.exists():
+    TRAITX_DB = DATA / "trait_kor_mean.xlsx"
 
 # ── 상수 ───────────────────────────────────────────────────
 ZONE_CODE = ["S1", "S2", "S3", "S4"]
@@ -42,9 +48,16 @@ ZONE_DESC = {
 ZONE_PAL     = {"S1": "#c62828", "S2": "#ef6c00", "S3": "#fbc02d", "S4": "#2e7d32"}
 ZONE_PAL_RGB = {"S1": (198,40,40), "S2": (239,108,0), "S3": (251,192,45), "S4": (46,125,50)}
 ZONE_VAL_MAP = {1: "S1", 2: "S2", 3: "S3", 4: "S4"}
-IDEAL_FORM   = {"S1":["초본","관목"],"S2":["초본","관목"],"S3":["관목","교목"],"S4":["관목","초본"]}
-SIT_PREF     = {"S1":"R","S2":"R","S3":"C","S4":"S"}
+IDEAL_FORM   = {"S1":["초본"],"S2":["초본","관목"],"S3":["관목","교목"],"S4":["관목","초본"]}
+SIT_PREF     = {"S1":"R","S2":"C","S3":"C","S4":"S"}  # S2: 완경사 개척 → 경쟁형 전환
 PREF_KOR     = {"R":"개척형","C":"경쟁형","S":"내성형"}
+# 구역별 (환경적합 가중치, 현장실행 가중치)
+ZONE_SCORE_W = {
+    "S1": (0.35, 0.65),  # 침식 긴급: 정착 속도 최우선
+    "S2": (0.60, 0.40),  # 개척 파종: 생태 적합 우선
+    "S3": (0.65, 0.35),  # 천이 촉진: 장기 군락 형성
+    "S4": (0.50, 0.50),  # 하층 보완: 균형
+}
 
 # ── 페이지 설정 ────────────────────────────────────────────
 st.set_page_config(page_title="🌱 ReSeed", layout="wide", page_icon="🌱")
@@ -55,6 +68,9 @@ st.markdown("""
 .header-bar .sub{font-size:12px;opacity:.85;}
 .zone-card{border-radius:6px;padding:12px 14px;margin:4px;}
 .score-note{font-size:11px;color:#888;background:#fafafa;padding:4px 8px;border-radius:3px;}
+/* 로딩 중 흰 화면 대신 옅은 배경 유지 */
+.stApp, [data-testid="stAppViewContainer"] {background-color:#f5f7f5 !important;}
+[data-testid="stMain"] > div:first-child {background-color:#f5f7f5;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,6 +81,28 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
+# ════════════════════════════════════════════════════════════
+# TraitX 자동 갱신 — 앱 시작 시 TraitX가 라이브러리보다 새로우면 재빌드
+# ════════════════════════════════════════════════════════════
+def _auto_rebuild():
+    try:
+        from build_op_scores import needs_rebuild, rebuild
+        if needs_rebuild(TRAITX_DB, LIB_CSV):
+            with st.spinner("TraitX DB 갱신 감지 — 라이브러리 자동 업데이트 중..."):
+                info = rebuild(TRAITX_DB, LIB_CSV)
+            st.toast(
+                f"라이브러리 업데이트 완료 ({info['traitx_file']} 기준, "
+                f"CSR {info['n_csr_matched']}/{info['n_lib']}종)",
+                icon="✅",
+            )
+            if "lib" in st.session_state:
+                del st.session_state["lib"]
+            load_library.clear()
+    except Exception as e:
+        st.warning(f"라이브러리 자동 갱신 실패: {e}")
+
+_auto_rebuild()
 
 # ════════════════════════════════════════════════════════════
 # 데이터 로딩
@@ -78,6 +116,8 @@ def load_library() -> pd.DataFrame:
     for col in ["c_percent","s_percent","r_percent","op_establishment","op_safe_growth","op_sourcing"]:
         if col not in df.columns:
             df[col] = np.nan
+    if "is_alien" not in df.columns:
+        df["is_alien"] = False
     return df
 
 def reload_library():
@@ -101,33 +141,90 @@ def _csr_match(c, s, r, zone: str) -> float:
     return round(0.4 + 0.6 * v, 2)
 
 def recommend_for(lib: pd.DataFrame, zone: str, n: int = 8) -> pd.DataFrame:
-    df = lib.copy()
+    ideal_forms = IDEAL_FORM[zone]
+    df_native = lib[~lib["is_alien"].fillna(False).astype(bool)].copy()
+    df_pool = df_native[df_native["form_grp"].isin(ideal_forms)].copy()
+    if len(df_pool) < n:
+        df_pool = df_native.copy()
+    df = df_pool.copy()
+
+    # C1: CSR 저가중치 — 생활형 60% : CSR 40% (CSR 데이터 불확실성 반영)
     df["환경적합"] = df.apply(
-        lambda row: round((_form_match(row.get("form_grp"), zone) +
-                           _csr_match(row.get("c_percent"), row.get("s_percent"),
-                                      row.get("r_percent"), zone)) / 2, 2), axis=1)
+        lambda row: round(
+            _form_match(row.get("form_grp"), zone) * 0.6 +
+            _csr_match(row.get("c_percent"), row.get("s_percent"),
+                       row.get("r_percent"), zone) * 0.4, 2), axis=1)
     df["현장실행"] = ((df["op_establishment"].fillna(0.5) +
                       df["op_safe_growth"].fillna(0.5)) / 2).round(2)
-    df["추천점수"] = ((0.5 * df["환경적합"] + 0.5 * df["현장실행"]) * 100).round().astype(int)
-    df["추천이유"] = df.apply(lambda r: _tag_reason(r, zone), axis=1)
+    w_e, w_o = ZONE_SCORE_W[zone]
+    df["추천점수"] = ((w_e * df["환경적합"] + w_o * df["현장실행"]) * 100).round().astype(int)
     df = df.sort_values(["추천점수","op_safe_growth"], ascending=[False,False]).reset_index(drop=True)
+
+    # C4: 생활형 + 속(genus) 다양성 동시 보장
+    max_per_form = max(2, -(-n // len(ideal_forms))) if len(ideal_forms) >= 2 else n
+    MAX_PER_GENUS = 2
+    picked, form_counts, genus_counts = [], {}, {}
+    for _, row in df.iterrows():
+        fg  = row.get("form_grp", "")
+        sci = str(row.get("name_sci", "") or "")
+        genus = sci.split()[0] if sci.strip() else ""
+        # 생활형 캡
+        if len(ideal_forms) >= 2 and fg in ideal_forms:
+            if form_counts.get(fg, 0) >= max_per_form:
+                continue
+        # 속(genus) 캡 — 같은 속은 최대 MAX_PER_GENUS종
+        if genus and genus_counts.get(genus, 0) >= MAX_PER_GENUS:
+            continue
+        form_counts[fg]   = form_counts.get(fg, 0) + 1
+        if genus:
+            genus_counts[genus] = genus_counts.get(genus, 0) + 1
+        picked.append(row)
+        if len(picked) >= n:
+            break
+    if picked:
+        df = pd.DataFrame(picked).reset_index(drop=True)
+
+    df["추천이유"] = df.apply(lambda r: _tag_reason(r, zone), axis=1)
     df["순위"] = range(1, len(df) + 1)
     return df.head(n)
 
+def alien_in_pool(lib: pd.DataFrame, zone: str) -> pd.DataFrame:
+    """구역 생활형 풀 내 외래종 목록 (카드 하단 회색 참고 표시용)"""
+    ideal_forms = IDEAL_FORM[zone]
+    df_alien = lib[lib["is_alien"].fillna(False).astype(bool)].copy()
+    df_pool = df_alien[df_alien["form_grp"].isin(ideal_forms)].copy()
+    if df_pool.empty:
+        return pd.DataFrame()
+    df_pool["환경적합"] = df_pool.apply(
+        lambda row: round((_form_match(row.get("form_grp"), zone) +
+                           _csr_match(row.get("c_percent"), row.get("s_percent"),
+                                      row.get("r_percent"), zone)) / 2, 2), axis=1)
+    df_pool["현장실행"] = ((df_pool["op_establishment"].fillna(0.5) +
+                           df_pool["op_safe_growth"].fillna(0.5)) / 2).round(2)
+    w_e, w_o = ZONE_SCORE_W[zone]
+    df_pool["참고점수"] = ((w_e * df_pool["환경적합"] + w_o * df_pool["현장실행"]) * 100).round().astype(int)
+    return df_pool.sort_values("참고점수", ascending=False).reset_index(drop=True)
+
 def _tag_reason(row, zone: str) -> str:
-    fm = _form_match(row.get("form_grp"), zone)
-    fit = f"{ZONE_NAME[zone].replace(' 구역','')}에 맞음" if fm >= 1 else "부분 적합"
+    tags = []
+    form = row.get("form_grp") or ""
+    if _form_match(form, zone) >= 1.0:
+        tags.append(f"{form} ✓")
     c, s, r = row.get("c_percent"), row.get("s_percent"), row.get("r_percent")
-    if any(pd.isna(v) for v in [c, s, r]):
-        strat = "전략 미상"
-    else:
-        dom = ["C","S","R"][int(np.argmax([float(c), float(s), float(r)]))]
-        strat = PREF_KOR[dom] + ("(이 구역 강점)" if dom == SIT_PREF[zone] else "")
+    if not any(pd.isna(v) for v in [c, s, r]):
+        dom = ["C", "S", "R"][int(np.argmax([float(c), float(s), float(r)]))]
+        tags.append(f"{PREF_KOR[dom]} {'✓' if dom == SIT_PREF[zone] else '―'}")
     es = row.get("op_establishment", 0.5) or 0.5
     sg = row.get("op_safe_growth", 0.7) or 0.7
-    est = "빨리 정착" if es >= 0.8 else ("보통 정착" if es >= 0.6 else "느린 정착")
-    saf = "안 퍼짐(안전)" if sg >= 0.8 else ("⚠ 잘 퍼짐 주의" if sg <= 0.5 else "보통")
-    return f"{fit} · {strat} · {est} · {saf}"
+    if es >= 0.75:
+        tags.append("빠른 정착")
+    elif es < 0.55:
+        tags.append("정착 느림")
+    if sg >= 0.8:
+        tags.append("확산 안전")
+    elif sg <= 0.5:
+        tags.append("⚠ 확산 주의")
+    return " · ".join(tags) if tags else "구역 적합"
 
 
 # ════════════════════════════════════════════════════════════
@@ -176,137 +273,280 @@ def make_mission(bounds: tuple, spacing_m: float = 2, margin: float = 0.04,
     return {"path": path_pts, "markers": grid,
             "n_lines": len(ys), "n_way": n_way, "spacing_m": spacing_m}
 
-@st.cache_data(show_spinner=False)
-def classify_zones_from_tif(tif_key: str, tif_bytes: bytes | None,
-                             max_px: int = 300):
-    """
-    드론 TIF → 4구역 분류 배열
-    tif_key : 캐시 키 (파일명 or 'demo')
-    Returns : (zone_arr uint8, bounds_wgs84) or (None, None)
-    zone_arr values: 1=S1 2=S2 3=S3 4=S4  0=nodata
-    """
-    try:
-        src = rasterio.open(io.BytesIO(tif_bytes)) if tif_bytes else rasterio.open(DEMO_TIF)
-        with src:
-            H, W = src.height, src.width
-            scale = max_px / max(H, W)
-            oh, ow = max(4, int(H * scale)), max(4, int(W * scale))
-            n = min(src.count, 3)
-            data = src.read(
-                indexes=list(range(1, n + 1)),
-                out_shape=(n, oh, ow),
-                resampling=rasterio.enums.Resampling.average,
-            ).astype(np.float32)
-            # nodata mask
-            if src.count >= 4:
-                alpha = src.read(4, out_shape=(1, oh, ow),
-                                 resampling=rasterio.enums.Resampling.nearest)[0]
-                nodata = alpha == 0
-            else:
-                nodata = (data[0] == 0) & (data[1] == 0) & (data[2] == 0)
-            # WGS84 bounds
-            bnds = src.bounds
-            if src.crs and src.crs.to_epsg() != 4326:
-                b = transform_bounds(src.crs, "EPSG:4326", *bnds)
-            else:
-                b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
-
-        R, G, B = data[0], data[1], data[2]
-        total   = R + G + B + 1e-6
-        gcc     = G / total
-        bright  = total / (3 * 255)
-        gcc_mean = uniform_filter(gcc, size=7)
-        texture  = np.sqrt(np.maximum(
-            uniform_filter(gcc ** 2, size=7) - gcc_mean ** 2, 0))
-
-        valid  = ~nodata
-        if valid.sum() < 10:
-            return None, None
-
-        # S1: 밝고 초록 적음 → 맨땅/도로
-        br_th  = np.percentile(bright[valid], 70)
-        gc_th  = np.percentile(gcc[valid],   30)
-        s1     = valid & (bright > br_th) & (gcc < gc_th)
-        veg    = valid & ~s1
-
-        zone = np.zeros((oh, ow), dtype=np.uint8)
-        zone[s1] = 1
-
-        if veg.sum() >= 30:
-            feats  = np.column_stack([gcc[veg], texture[veg]])
-            labels = KMeans(n_clusters=3, random_state=42, n_init=10).fit_predict(feats)
-            means  = [feats[labels == k, 0].mean() for k in range(3)]
-            rank   = np.argsort(np.argsort(means))   # 낮은 gcc → S2, 높은 gcc → S4
-            lbl    = np.full((oh, ow), -1, dtype=np.int8)
-            lbl[veg] = labels
-            for k in range(3):
-                zone[lbl == k] = int(rank[k]) + 2
-        elif veg.sum() > 0:
-            zone[veg] = 2
-
-        zone[nodata] = 0
-        return zone, b
-    except Exception:
+@st.cache_data
+def zone_tif_overlay() -> tuple[str | None, tuple | None]:
+    """구역 TIF → base64 PNG (folium ImageOverlay용)"""
+    if not ZONE_TIF.exists():
         return None, None
-
-
-def zone_array_to_overlay(zone_arr: np.ndarray, bounds: tuple):
-    """Zone 배열 → base64 PNG (folium ImageOverlay용)"""
-    h, w = zone_arr.shape
+    with rasterio.open(ZONE_TIF) as src:
+        data = src.read(1)
+        bnds = src.bounds
+        b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
+    h, w = data.shape
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     for val, s in ZONE_VAL_MAP.items():
-        mask = zone_arr == val
-        rgb  = ZONE_PAL_RGB[s]
-        rgba[mask, 0] = rgb[0]; rgba[mask, 1] = rgb[1]
-        rgba[mask, 2] = rgb[2]; rgba[mask, 3] = 140
+        mask = data == val
+        rgb = ZONE_PAL_RGB[s]
+        rgba[mask, 0] = rgb[0]
+        rgba[mask, 1] = rgb[1]
+        rgba[mask, 2] = rgb[2]
+        rgba[mask, 3] = 140  # 반투명
+    img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
-    Image.fromarray(rgba, "RGBA").save(buf, format="PNG")
+    img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
-    return f"data:image/png;base64,{b64}", bounds
+    return f"data:image/png;base64,{b64}", b
 
+@st.cache_data
+def classify_zones_from_tif(tif_path_str: str) -> dict:
+    """업로드된 RGB(A) TIF에서 S1~S4 구역을 실시간 분류.
+    반환: {"zone_png": str(base64 data url), "exg_png": str, "veg_png": str,
+           "bounds": tuple, "zone_frac": dict, "exg_mean": float, "veg_cover": float}
+    """
+    MAX_CLF = 1500  # 분류용 최대 픽셀
+    MAX_VIZ = 600   # 시각화용 최대 픽셀
 
-def sample_zone_array(zone_arr: np.ndarray, bounds: tuple,
-                      markers: list[tuple]) -> list:
-    """드롭점 (lat,lon) → 해당 구역 코드"""
-    xmn, ymn, xmx, ymx = bounds
-    h, w = zone_arr.shape
-    out = []
-    for lat, lon in markers:
-        col = int((lon - xmn) / (xmx - xmn) * w)
-        row = int((ymx - lat) / (ymx - ymn) * h)
-        if 0 <= col < w and 0 <= row < h:
-            v = int(zone_arr[row, col])
-            out.append(ZONE_VAL_MAP.get(v) if v != 0 else None)
+    # ── 1단계: 메타데이터 + 오버뷰 확인 ─────────────────────────
+    with rasterio.open(tif_path_str) as src:
+        bnds = src.bounds
+        if src.crs and src.crs.to_epsg() != 4326:
+            b = transform_bounds(src.crs, "EPSG:4326", *bnds)
         else:
-            out.append(None)
-    return out
+            b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
+        h_orig, w_orig = src.height, src.width
+        n = src.count
+        ovrs = src.overviews(1)  # 오버뷰 배율 목록 e.g. [2, 4, 8, 16, 32, 64]
+
+    # ── 2단계: 오버뷰 활용(빠름) vs 직접 다운샘플(느림) ──────────
+    ovr_level = None
+    if ovrs:
+        target_factor = max(h_orig, w_orig) / MAX_CLF
+        for i, f in enumerate(ovrs):
+            if f >= target_factor:
+                ovr_level = i
+                break
+        if ovr_level is None:
+            ovr_level = len(ovrs) - 1  # 가장 거친 오버뷰
+
+    if ovr_level is not None:
+        with rasterio.open(tif_path_str, overview_level=ovr_level) as src:
+            out_h, out_w = src.height, src.width
+            bands = src.read().astype(np.float32)
+    else:
+        scale = min(1.0, MAX_CLF / max(h_orig, w_orig))
+        out_h = max(1, int(h_orig * scale))
+        out_w = max(1, int(w_orig * scale))
+        with rasterio.open(tif_path_str) as src:
+            bands = src.read(
+                out_shape=(n, out_h, out_w),
+                resampling=rasterio.enums.Resampling.average
+            ).astype(np.float32)
+
+    # 정규화 (0~1)
+    def norm_band(b_arr):
+        mn, mx = b_arr.min(), b_arr.max()
+        if mx - mn < 1e-6:
+            return np.zeros_like(b_arr)
+        return (b_arr - mn) / (mx - mn)
+
+    R = norm_band(bands[0])
+    G = norm_band(bands[1])
+    B = norm_band(bands[2]) if n >= 3 else norm_band(bands[1])
+    A = (bands[3] > 0) if n >= 4 else (R + G + B > 0.01)
+
+    # Valid mask
+    valid = A if n >= 4 else (R + G + B > 0.01)
+
+    # ExG 식생지수
+    exg = 2 * G - R - B
+    exg = np.clip(exg, -1, 1)
+
+    # 식생 마스크
+    veg = (exg > 0.05) & valid
+    bare = (~veg) & valid
+
+    # CHM proxy — ExG 양수 부분만 사용 (음수=나지, 높을수록 키 큰 식생)
+    chm = np.where(exg > 0, exg * 14.0, 0.0)  # 0~14m
+
+    # Layer 분류
+    layer = np.zeros_like(chm, dtype=np.int32)
+    layer[valid & (chm <= 0.3)] = 0   # 나지
+    layer[valid & (chm > 0.3) & (chm <= 1.5)] = 1  # 저초
+    layer[valid & (chm > 1.5) & (chm <= 5.0)] = 2  # 중간
+    layer[valid & (chm > 5.0)] = 3    # 교목
+
+    # 합성 DTM (x,y를 0~100으로 정규화)
+    ys_idx = np.linspace(0, 100, out_h)
+    xs_idx = np.linspace(0, 100, out_w)
+    xx, yy = np.meshgrid(xs_idx, ys_idx)
+    dtm = (0.10 * xx + 0.04 * yy
+           + 8 * np.sin(xx / 25)
+           + 6 * np.cos(yy / 30)
+           + 4 * np.sin((xx + yy) / 18))
+
+    # Slope (gradient → arctan → degrees)
+    dy, dx = np.gradient(dtm)
+    slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
+
+    # Bare fraction (5×5 uniform filter, numpy conv 대체)
+    bare_f32 = bare.astype(np.float32)
+    # 2D convolution using sliding_window_view
+    from numpy.lib.stride_tricks import sliding_window_view
+    pad = 2
+    bare_padded = np.pad(bare_f32, pad, mode='edge')
+    windows = sliding_window_view(bare_padded, (5, 5))
+    gb = windows.mean(axis=(-2, -1))
+
+    # Erosion proxy
+    ero_proxy = 0.6 * (slope / 35.0) + 0.4 * gb
+    ero = np.ones_like(ero_proxy, dtype=np.int32)
+    ero[ero_proxy >= 0.33] = 2
+    ero[ero_proxy >= 0.66] = 3
+
+    # bd: 나지 또는 gb>=0.5
+    bd = (layer == 0) | (gb >= 0.5)
+
+    # 구역 분류
+    zone = np.zeros((out_h, out_w), dtype=np.int32)
+    zone[valid & bd & ((ero == 3) | (slope > 30))] = 1  # S1
+    zone[valid & bd & ~((ero == 3) | (slope > 30))] = 2  # S2
+    zone[valid & ~bd & (layer == 3)] = 4  # S4
+    zone[valid & ~bd & (layer < 3)] = 3  # S3
+
+    # 구역별 픽셀 비율
+    total_valid = valid.sum()
+    zone_frac = {}
+    for v, s in ZONE_VAL_MAP.items():
+        cnt = (zone == v).sum()
+        zone_frac[s] = float(cnt / total_valid) if total_valid > 0 else 0.0
+
+    # 통계
+    exg_mean = float(exg[valid].mean()) if valid.any() else 0.0
+    veg_cover = float(veg.sum() / total_valid) if total_valid > 0 else 0.0
+
+    def _make_overlay_png(rgba_arr: np.ndarray) -> str:
+        """RGBA numpy array → base64 PNG data URL, max MAX_VIZ px"""
+        h_a, w_a = rgba_arr.shape[:2]
+        sc = min(1.0, MAX_VIZ / max(h_a, w_a))
+        if sc < 1.0:
+            new_h, new_w = max(1, int(h_a * sc)), max(1, int(w_a * sc))
+            img = Image.fromarray(rgba_arr, "RGBA").resize((new_w, new_h), Image.NEAREST)
+        else:
+            img = Image.fromarray(rgba_arr, "RGBA")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    # 구역 PNG
+    zone_rgba = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    for val, s in ZONE_VAL_MAP.items():
+        mask = zone == val
+        rgb = ZONE_PAL_RGB[s]
+        zone_rgba[mask, 0] = rgb[0]
+        zone_rgba[mask, 1] = rgb[1]
+        zone_rgba[mask, 2] = rgb[2]
+        zone_rgba[mask, 3] = 140
+    zone_png = _make_overlay_png(zone_rgba)
+
+    # ExG PNG (초록 그라디언트)
+    exg_disp = ((exg + 1) / 2 * 255).astype(np.uint8)
+    exg_rgba = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    exg_rgba[:, :, 1] = exg_disp  # Green channel
+    exg_rgba[:, :, 3] = np.where(valid, 160, 0).astype(np.uint8)
+    exg_png = _make_overlay_png(exg_rgba)
+
+    # 식생마스크 PNG
+    veg_rgba = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    veg_rgba[veg, 0] = 46; veg_rgba[veg, 1] = 125; veg_rgba[veg, 2] = 50; veg_rgba[veg, 3] = 160   # 초록
+    veg_rgba[bare, 0] = 239; veg_rgba[bare, 1] = 108; veg_rgba[bare, 2] = 0; veg_rgba[bare, 3] = 160  # 주황
+    veg_png = _make_overlay_png(veg_rgba)
+
+    return {
+        "zone_png": zone_png,
+        "exg_png": exg_png,
+        "veg_png": veg_png,
+        "bounds": b,
+        "zone_frac": zone_frac,
+        "exg_mean": exg_mean,
+        "veg_cover": veg_cover,
+        "zone_arr": zone,   # lat/lon → 픽셀 색인용 (드롭점 구역 결정)
+    }
+
+def sample_zone_at_points(markers: list[tuple],
+                          zone_arr: np.ndarray | None = None,
+                          bounds: tuple | None = None) -> list[str | None]:
+    """드롭점 좌표 → 해당 구역 코드 반환. zone_arr 있으면 실시간 분류 결과 우선 사용."""
+    if zone_arr is not None and bounds is not None:
+        h, w = zone_arr.shape
+        xmn, ymn, xmx, ymx = bounds
+        dx, dy = xmx - xmn, ymx - ymn
+        result = []
+        for lat, lon in markers:
+            col = int((lon - xmn) / dx * (w - 1))
+            row_ = int((ymx - lat) / dy * (h - 1))
+            if 0 <= row_ < h and 0 <= col < w:
+                v = int(zone_arr[row_, col])
+                result.append(ZONE_VAL_MAP.get(v, None) if v > 0 else None)
+            else:
+                result.append(None)
+        return result
+    if not ZONE_TIF.exists():
+        return [None] * len(markers)
+    with rasterio.open(ZONE_TIF) as src:
+        coords = [(lon, lat) for lat, lon in markers]
+        vals = [v[0] for v in src.sample(coords)]
+    return [ZONE_VAL_MAP.get(int(v), None) if not np.isnan(v) else None for v in vals]
 
 
 # ════════════════════════════════════════════════════════════
 # 지도 생성
 # ════════════════════════════════════════════════════════════
 def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
-              zone_arr=None, zone_bounds=None) -> str:
+              layers: dict | None = None, tops: dict | None = None) -> str:
     lat_c, lon_c = meta["lat_c"], meta["lon_c"]
     b = meta["bounds"]
 
     m = folium.Map(location=[lat_c, lon_c], zoom_start=15, tiles=None)
-    folium.TileLayer("Esri.WorldImagery", name="위성", attr="Esri").add_to(m)
     folium.TileLayer("OpenStreetMap", name="일반 지도").add_to(m)
+    folium.TileLayer("Esri.WorldImagery", name="위성", attr="Esri").add_to(m)  # 마지막 = 기본
 
     # 대상지 경계
     folium.Rectangle([[b[1],b[0]],[b[3],b[2]]],
                      color="#f1c40f", weight=2, fill=False,
                      name="대상지").add_to(m)
 
-    # 구역 오버레이 (동적 분류 결과)
-    if zone_arr is not None and zone_bounds is not None:
-        png_data, zb = zone_array_to_overlay(zone_arr, zone_bounds)
-        folium.raster_layers.ImageOverlay(
-            image=png_data,
-            bounds=[[zb[1], zb[0]], [zb[3], zb[2]]],
-            opacity=0.5, name="복원 구역",
-        ).add_to(m)
+    # 구역 오버레이 — 실시간 분류 결과 또는 fallback(데모용 고정 TIF)
+    if layers is not None:
+        zone_png = layers.get("zone_png")
+        zone_bnds = layers.get("bounds")
+        if zone_png and zone_bnds:
+            folium.raster_layers.ImageOverlay(
+                image=zone_png,
+                bounds=[[zone_bnds[1], zone_bnds[0]], [zone_bnds[3], zone_bnds[2]]],
+                opacity=0.55, name="복원 구역 (실시간)",
+            ).add_to(m)
+        exg_png = layers.get("exg_png")
+        if exg_png and zone_bnds:
+            folium.raster_layers.ImageOverlay(
+                image=exg_png,
+                bounds=[[zone_bnds[1], zone_bnds[0]], [zone_bnds[3], zone_bnds[2]]],
+                opacity=0.6, name="ExG 식생지수", show=False,
+            ).add_to(m)
+        veg_png = layers.get("veg_png")
+        if veg_png and zone_bnds:
+            folium.raster_layers.ImageOverlay(
+                image=veg_png,
+                bounds=[[zone_bnds[1], zone_bnds[0]], [zone_bnds[3], zone_bnds[2]]],
+                opacity=0.6, name="식생 마스크", show=False,
+            ).add_to(m)
+    else:
+        png_data, zone_bnds = zone_tif_overlay()
+        if png_data and zone_bnds:
+            folium.raster_layers.ImageOverlay(
+                image=png_data,
+                bounds=[[zone_bnds[1], zone_bnds[0]], [zone_bnds[3], zone_bnds[2]]],
+                opacity=0.5, name="복원 구역",
+            ).add_to(m)
 
     # 드론 경로
     ms = make_mission(b, spacing_m)
@@ -315,13 +555,13 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
     path_fg.add_to(m)
 
     # 드롭점 (구역별 색상 + 뿌릴 종 라벨)
-    tops = {s: (recommend_for(lib, s, 1)["name_kor"].iloc[0]
-                if len(recommend_for(lib, s, 1)) > 0 else "-")
-            for s in ZONE_CODE}
-    if zone_arr is not None and zone_bounds is not None:
-        zone_codes = sample_zone_array(zone_arr, zone_bounds, ms["markers"])
-    else:
-        zone_codes = [None] * len(ms["markers"])
+    if tops is None:
+        tops = {s: (recommend_for(lib, s, 1)["name_kor"].iloc[0]
+                    if len(recommend_for(lib, s, 1)) > 0 else "-")
+                for s in ZONE_CODE}
+    zone_arr  = layers.get("zone_arr")  if layers else None
+    zone_bnds = layers.get("bounds")    if layers else None
+    zone_codes = sample_zone_at_points(ms["markers"], zone_arr=zone_arr, bounds=zone_bnds)
     drop_fg = folium.FeatureGroup(name="드롭점(뿌릴 종)", show=True)
     for (lat, lon), s in zip(ms["markers"], zone_codes):
         color = ZONE_PAL.get(s, "#888888") if s else "#888888"
@@ -353,30 +593,71 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
 # ════════════════════════════════════════════════════════════
 # 점수 차트 (Plotly)
 # ════════════════════════════════════════════════════════════
-def score_chart(df: pd.DataFrame) -> go.Figure:
-    names = df["name_kor"].tolist()[::-1]
-    env_  = (df["환경적합"] * 50).tolist()[::-1]
-    est_  = (df["op_establishment"].fillna(0.5) * 25).tolist()[::-1]
-    saf_  = (df["op_safe_growth"].fillna(0.5) * 25).tolist()[::-1]
+def score_chart(df: pd.DataFrame, alien_df: pd.DataFrame | None = None) -> go.Figure:
+    # ── 자생종 ──────────────────────────────────────────────
+    names  = df["name_kor"].tolist()[::-1]
+    env_   = (df["환경적합"] * 50).tolist()[::-1]
+    est_   = (df["op_establishment"].fillna(0.5) * 25).tolist()[::-1]
+    saf_   = (df["op_safe_growth"].fillna(0.5) * 25).tolist()[::-1]
     scores = df["추천점수"].tolist()[::-1]
+
+    has_alien = alien_df is not None and not alien_df.empty
+
+    # 외래종이 있으면 구분 줄 + 외래종 항목을 맨 아래(y축 앞)에 추가
+    if has_alien:
+        sep        = ["── 참고: 외래종 ──"]
+        a_names    = alien_df["name_kor"].tolist()
+        a_env      = (alien_df["환경적합"] * 50).tolist()
+        a_est      = (alien_df["op_establishment"].fillna(0.5) * 25).tolist()
+        a_saf      = (alien_df["op_safe_growth"].fillna(0.5) * 25).tolist()
+        a_scores   = alien_df["참고점수"].tolist()
+        all_names  = a_names + sep + names
+        all_env    = a_env  + [0] + env_
+        all_est    = a_est  + [0] + est_
+        all_saf    = a_saf  + [0] + saf_
+        all_scores = a_scores + [None] + scores
+        # 색: 외래종=회색, 구분=투명, 자생종=각 색
+        env_colors = ["#bdbdbd"]*len(a_names) + ["rgba(0,0,0,0)"] + ["#2e7d32"]*len(names)
+        est_colors = ["#bdbdbd"]*len(a_names) + ["rgba(0,0,0,0)"] + ["#1e88e5"]*len(names)
+        saf_colors = ["#bdbdbd"]*len(a_names) + ["rgba(0,0,0,0)"] + ["#ef6c00"]*len(names)
+        n_rows     = len(all_names)
+    else:
+        all_names  = names
+        all_env, all_est, all_saf, all_scores = env_, est_, saf_, scores
+        env_colors = ["#2e7d32"] * len(names)
+        est_colors = ["#1e88e5"] * len(names)
+        saf_colors = ["#ef6c00"] * len(names)
+        n_rows     = len(names)
+
     fig = go.Figure()
-    fig.add_trace(go.Bar(name="환경 적합", y=names, x=env_, orientation="h",
-                         marker_color="#2e7d32", hovertemplate="%{x:.0f}점<extra>환경 적합</extra>"))
-    fig.add_trace(go.Bar(name="정착",     y=names, x=est_, orientation="h",
-                         marker_color="#1e88e5", hovertemplate="%{x:.0f}점<extra>정착</extra>"))
-    fig.add_trace(go.Bar(name="안전",     y=names, x=saf_, orientation="h",
-                         marker_color="#ef6c00", hovertemplate="%{x:.0f}점<extra>안전</extra>"))
-    # 총점 텍스트
+    # 호버: 각 구성요소 상세 설명 포함
+    env_hover = "<b>%{y}</b><br>환경 적합: %{x:.0f}점<br><i>CSR 생태전략 + 생활형 매칭</i><extra></extra>"
+    est_hover = "<b>%{y}</b><br>정착: %{x:.0f}점<br><i>SLA 기반 초기 정착력</i><extra></extra>"
+    saf_hover = "<b>%{y}</b><br>안전: %{x:.0f}점<br><i>LDMC 기반 장기 생존력</i><extra></extra>"
+
+    fig.add_trace(go.Bar(name="환경 적합 (CSR·생활형)", y=all_names, x=all_env, orientation="h",
+                         marker_color=env_colors, hovertemplate=env_hover))
+    fig.add_trace(go.Bar(name="정착 (SLA·초기 성장)",   y=all_names, x=all_est, orientation="h",
+                         marker_color=est_colors, hovertemplate=est_hover))
+    fig.add_trace(go.Bar(name="안전 (LDMC·생존력)",     y=all_names, x=all_saf, orientation="h",
+                         marker_color=saf_colors, hovertemplate=saf_hover))
+
+    # 총점 레이블 — 막대 끝에 짧게 "86점"만 표시, 상세는 호버로
+    label_x = [e+es+sa+1 for e,es,sa in zip(all_env, all_est, all_saf)]
+    label_t = [f"{s}점" if s is not None else "" for s in all_scores]
+    label_c = (["#999"]*len(a_names) + ["rgba(0,0,0,0)"] + ["#333"]*len(names)) if has_alien else ["#333"]*len(names)
     fig.add_trace(go.Scatter(
-        x=[e+es+sa+2 for e,es,sa in zip(env_,est_,saf_)], y=names,
-        mode="text", text=[f"{s}점" for s in scores],
-        textfont=dict(size=11, color="#333"), showlegend=False,
+        x=label_x, y=all_names, mode="text", text=label_t,
+        textposition="middle right",
+        textfont=dict(size=12, color=label_c, family="Arial Black"),
+        showlegend=False,
+        hoverinfo="skip",
     ))
     fig.update_layout(
-        barmode="stack", height=max(220, len(df) * 36 + 60),
-        margin=dict(l=0, r=50, t=20, b=20),
-        legend=dict(orientation="h", y=1.12, x=0),
-        xaxis=dict(range=[0, 108], title="추천 점수 (100점 만점)"),
+        barmode="stack", height=max(220, n_rows * 36 + 60),
+        margin=dict(l=0, r=55, t=20, b=20),
+        legend=dict(orientation="h", y=1.14, x=0, font=dict(size=11)),
+        xaxis=dict(range=[0, 108], title="추천 점수 (100점 만점)", fixedrange=True),
         plot_bgcolor="white",
     )
     return fig
@@ -393,6 +674,23 @@ def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
 def path_to_csv_bytes(ms: dict) -> bytes:
     rows = [{"순번": i+1, "위도": round(lat,7), "경도": round(lon,7)}
             for i, (lat, lon) in enumerate(ms["path"])]
+    return df_to_csv_bytes(pd.DataFrame(rows))
+
+def drop_points_csv_bytes(markers: list, zone_codes: list, rec_cache: dict) -> bytes:
+    """파종 드롭점 → 좌표 + 구역 + 추천 Top3 종 CSV"""
+    rows = []
+    for i, ((lat, lon), z) in enumerate(zip(markers, zone_codes)):
+        top3 = rec_cache[z].head(3)["name_kor"].tolist() if z and z in rec_cache else []
+        rows.append({
+            "순번": i + 1,
+            "위도": round(lat, 7),
+            "경도": round(lon, 7),
+            "구역코드": z or "구역밖",
+            "구역명": ZONE_NAME.get(z, "구역 밖"),
+            "1순위종": top3[0] if len(top3) > 0 else "",
+            "2순위종": top3[1] if len(top3) > 1 else "",
+            "3순위종": top3[2] if len(top3) > 2 else "",
+        })
     return df_to_csv_bytes(pd.DataFrame(rows))
 
 
@@ -414,12 +712,52 @@ with tab1:
     # ── 입력 패널 ────────────────────────────────────────────
     with col_in:
         st.subheader("① 입력")
-        uploaded = st.file_uploader(
-            "📂 드론 영상 올리기 (GeoTIFF)",
-            type=["tif", "tiff"],
-            help="정사영상 GeoTIFF 파일. EPSG:4326 또는 UTM 가능.",
+        local_path_str = st.text_input(
+            "📁 드론 영상 경로 (GeoTIFF)",
+            placeholder=r"예: Z:\1.Project\현장\result.tif",
+            help="이 PC에 있는 파일 경로. 크기 제한 없음.",
         )
-        use_demo = st.checkbox("데모 영상 사용 (result_small.tif)", value=True)
+        uploaded = st.file_uploader(
+            "또는 파일 직접 업로드 (외부 PC에서 접속 시)",
+            type=["tif", "tiff"],
+            help="외부 기기에서 접속해 자신의 TIF를 올릴 때 사용합니다.",
+        )
+        use_demo = False
+        if local_path_str and Path(local_path_str).exists():
+            fsize_mb = Path(local_path_str).stat().st_size / 1e6
+            st.success(f"✅ {Path(local_path_str).name}  ({fsize_mb:.0f} MB)")
+            # 대용량 파일: 오버뷰 상태 표시
+            if fsize_mb > 200:
+                try:
+                    with rasterio.open(local_path_str) as _s:
+                        _ovrs = _s.overviews(1)
+                    if not _ovrs:
+                        st.warning(
+                            f"⚠ 대용량 파일({fsize_mb:.0f}MB)에 오버뷰가 없습니다. "
+                            "첫 분석에 수 분이 걸릴 수 있습니다. "
+                            "아래 버튼으로 1회 전처리하면 이후 1초 이내로 빨라집니다."
+                        )
+                        if st.button("⚡ 오버뷰 생성 (1회 전처리)", key="build_ovr"):
+                            with st.spinner(f"오버뷰 생성 중… ({fsize_mb:.0f}MB, 1~3분 소요)"):
+                                with rasterio.open(local_path_str, "r+") as _ds:
+                                    _ds.build_overviews(
+                                        [2, 4, 8, 16, 32, 64],
+                                        rasterio.enums.Resampling.nearest,
+                                    )
+                                    _ds.update_tags(ns="rio_overview", resampling="nearest")
+                                classify_zones_from_tif.clear()
+                            st.success("✅ 오버뷰 생성 완료! 빠른 분석을 사용합니다.")
+                            st.rerun()
+                    else:
+                        st.caption(f"⚡ 오버뷰 {len(_ovrs)}레벨 확인 — 빠른 분석 사용")
+                except Exception:
+                    pass
+        elif local_path_str:
+            st.error("⚠ 파일을 찾을 수 없습니다. 경로를 확인하세요.")
+        elif uploaded:
+            st.success("✅ 업로드된 파일로 분석합니다.")
+        else:
+            use_demo = st.checkbox("📍 데모 영상으로 보기 (result_small.tif)", value=True)
         spacing_m = st.number_input("🚁 드론 비행 간격 (m) — 작을수록 촘촘",
                                     min_value=1, max_value=20, value=2, step=1)
         zone_sel = st.selectbox(
@@ -430,50 +768,62 @@ with tab1:
         )
         st.caption(f"👉 {ZONE_DESC[zone_sel]}")
 
-        # TIF 결정
+        # TIF 결정 — 경로 > 업로드 > 데모 순 우선순위
         tif_path: Path | None = None
-        tif_bytes: bytes | None = None
-        if uploaded:
-            tif_bytes = uploaded.read()
-            tif_path = Path(uploaded.name)
+        if local_path_str and Path(local_path_str).exists():
+            tif_path = Path(local_path_str)
+        elif uploaded:
+            up_name = uploaded.name
+            if st.session_state.get("_up_name") != up_name:
+                with st.spinner(f"📂 {up_name} 저장 중…"):
+                    suffix = Path(up_name).suffix or ".tif"
+                    old_tmp = st.session_state.get("_tmp_tif")
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    tmp.write(uploaded.read())
+                    tmp.close()
+                    if old_tmp:
+                        try: os.unlink(old_tmp)
+                        except: pass
+                    st.session_state["_tmp_tif"] = tmp.name
+                    st.session_state["_up_name"] = up_name
+            tif_path = Path(st.session_state["_tmp_tif"])
         elif use_demo and DEMO_TIF.exists():
             tif_path = DEMO_TIF
 
+        # 실시간 구역 분류 (데모·업로드 동일하게 처리, 캐시로 데모는 빠름)
+        if tif_path:
+            tif_path_str = str(tif_path)
+            is_demo = tif_path == DEMO_TIF
+            status_label = "📍 데모 영상 분석 중…" if is_demo else "🔬 영상 분석 중…"
+            with st.status(status_label, expanded=True) as _sts:
+                try:
+                    _sts.write("🛰 픽셀에 따른 지형 분석 중…")
+                    layers_result = classify_zones_from_tif(tif_path_str)
+                    _sts.write("🗺 복원 구역(S1–S4) 경계 확정 중…")
+                    st.session_state["layers"] = layers_result
+                    _sts.write("🌱 분석 결과에 따른 수종 선정 중…")
+                    _sts.update(label="✅ 영상 분석 완료", state="complete", expanded=False)
+                except Exception as e:
+                    _sts.update(label="❌ 분류 실패", state="error", expanded=False)
+                    st.warning(f"구역 분류 실패 (기본 표시로 대체): {e}")
+                    st.session_state["layers"] = None
+
         # 메타 표시
-        if tif_path or tif_bytes:
+        if tif_path:
             try:
-                if tif_bytes:
-                    with rasterio.open(io.BytesIO(tif_bytes)) as src:
-                        bnds = src.bounds
-                        crs_epsg = src.crs.to_epsg() if src.crs else None
-                        nc, nr, nb = src.width, src.height, src.count
-                    if crs_epsg and crs_epsg != 4326:
-                        b = transform_bounds(f"EPSG:{crs_epsg}", "EPSG:4326", *bnds)
-                    else:
-                        b = (bnds.left, bnds.bottom, bnds.right, bnds.top)
-                    lon_c = (b[0]+b[2])/2; lat_c = (b[1]+b[3])/2
-                    m_lon = 111320*math.cos(math.radians(lat_c)); m_lat=111320
-                    meta = {"bounds":b,"lon_c":lon_c,"lat_c":lat_c,
-                            "w_m":(b[2]-b[0])*m_lon,"h_m":(b[3]-b[1])*m_lat,
-                            "area_ha":(b[2]-b[0])*m_lon*(b[3]-b[1])*m_lat/10000,
-                            "nbands":nb,"width":nc,"height":nr}
-                else:
+                with st.spinner("📡 영상 정보 읽는 중…"):
                     meta = read_tif_meta(tif_path)
                 st.session_state["meta"] = meta
                 ms = make_mission(meta["bounds"], spacing_m)
                 st.session_state["ms"] = ms
-                # ── 구역 자동 분류 ──────────────────────────
-                tif_key = uploaded.name if uploaded else "demo"
-                with st.spinner("🛰 드론 영상에서 복원 구역 분류 중…"):
-                    z_arr, z_bnds = classify_zones_from_tif(tif_key, tif_bytes)
-                st.session_state["zone_arr"]    = z_arr
-                st.session_state["zone_bounds"] = z_bnds
-                st.info(
-                    f"📍 중심: {meta['lat_c']:.5f}°N, {meta['lon_c']:.5f}°E  \n"
-                    f"📐 범위: {meta['w_m']:.0f} m × {meta['h_m']:.0f} m ≈ **{meta['area_ha']:.2f} ha**  \n"
-                    f"🎞 크기: {meta['nbands']}밴드 · {meta['width']}×{meta['height']}px  \n"
-                    f"🚁 비행: 라인 {ms['n_lines']}개 · 드롭점 약 {ms['n_way']:,}개"
+                st.success(
+                    f"✅ **{meta['area_ha']:.2f} ha** 대상지 로드 완료 | 드롭점 약 {ms['n_way']:,}개"
                 )
+                with st.expander("📐 상세 정보"):
+                    st.caption(f"중심: {meta['lat_c']:.5f}°N, {meta['lon_c']:.5f}°E")
+                    st.caption(f"범위: {meta['w_m']:.0f}m × {meta['h_m']:.0f}m")
+                    st.caption(f"크기: {meta['nbands']}밴드 · {meta['width']}×{meta['height']}px")
+                    st.caption(f"비행: 라인 {ms['n_lines']}개 · 간격 {spacing_m}m")
             except Exception as e:
                 st.error(f"영상 읽기 실패: {e}")
                 st.session_state.pop("meta", None)
@@ -482,6 +832,11 @@ with tab1:
     with col_out:
         st.subheader("② 결과")
         lib = st.session_state["lib"]
+        # 추천 캐시 — 한 번만 계산해서 카드·차트·CSV 전부 재사용
+        rec_cache   = {s: recommend_for(lib, s, 8) for s in ZONE_CODE}
+        alien_cache = {s: alien_in_pool(lib, s) for s in ZONE_CODE}
+        tops = {s: (rec_cache[s]["name_kor"].iloc[0] if len(rec_cache[s]) > 0 else "-")
+                for s in ZONE_CODE}
 
         if "meta" not in st.session_state:
             st.info("← 왼쪽에서 드론 영상을 선택하면 결과가 여기에 나타납니다.")
@@ -489,12 +844,59 @@ with tab1:
             meta = st.session_state["meta"]
             ms   = st.session_state["ms"]
 
+            # 파종지점 구역 결정 (drop_points CSV + 지도 드롭점 공유)
+            _layers = st.session_state.get("layers")
+            _zone_arr  = _layers.get("zone_arr")  if _layers else None
+            _zone_bnds = _layers.get("bounds")    if _layers else None
+            zone_codes_for_markers = sample_zone_at_points(
+                ms["markers"], zone_arr=_zone_arr, bounds=_zone_bnds)
+
             # 지도
             with st.spinner("🛰 지도 생성 중…"):
                 map_html = build_map(meta, lib, spacing_m,
-                                     zone_arr=st.session_state.get("zone_arr"),
-                                     zone_bounds=st.session_state.get("zone_bounds"))
+                                     layers=_layers,
+                                     tops=tops)
             st.components.v1.html(map_html, height=440, scrolling=False)
+            with st.expander("🗺 지도 레이어 설명"):
+                st.markdown(
+                    "지도 우상단 레이어 컨트롤에서 각 레이어를 켜고 끌 수 있습니다.\n\n"
+                    "- **복원 구역** — S1(빨강·긴급안정화) / S2(주황·개척파종) / S3(노랑·천이촉진) / S4(초록·하층보완) 구역 경계\n"
+                    "- **ExG 식생지수** — ExG = 2×G − R − B. 초록이 진할수록 식생 밀도 높음. 음수(어두움)는 나지\n"
+                    "- **식생 마스크** — ExG > 0.05 픽셀을 초록(식생), 나머지를 주황(나지)으로 표시. "
+                    "구역 분류의 기초 레이어로, 초록 면적이 넓을수록 S3·S4 비중이 높아짐\n"
+                    "- **드론 경로** — 설정한 비행 간격(m)으로 생성된 왕복(boustrophedon) 비행 경로\n"
+                    "- **드롭점** — 시드볼을 투하할 격자 지점. 최대 400점 표시"
+                )
+
+            st.divider()
+
+            # ── 분석 레이어 요약 패널 ─────────────────────────
+            _layers = st.session_state.get("layers")
+            if _layers is not None:
+                zone_frac = _layers.get("zone_frac", {})
+                exg_mean = _layers.get("exg_mean", 0.0)
+                veg_cover = _layers.get("veg_cover", 0.0)
+
+                st.markdown("**🔬 실시간 분석 결과**")
+                frac_cols = st.columns(4)
+                for i, s in enumerate(ZONE_CODE):
+                    frac = zone_frac.get(s, 0.0)
+                    with frac_cols[i]:
+                        st.metric(
+                            label=f"{ZONE_NAME[s].replace(' 구역','')} ({s})",
+                            value=f"{frac*100:.1f}%",
+                            help=ZONE_DESC[s],
+                        )
+
+                with st.expander("📊 분석 레이어 상세"):
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        exg_lbl = "높음(식생 풍부)" if exg_mean > 0.1 else ("보통" if exg_mean > 0 else "낮음(나지 우세)")
+                        st.metric("ExG 평균 (식생지수)", f"{exg_mean:.3f}", help="ExG = 2G-R-B. 양수일수록 식생 많음")
+                        st.caption(f"해석: {exg_lbl}")
+                    with ec2:
+                        st.metric("식생 피복률", f"{veg_cover*100:.1f}%", help="ExG>0.05 픽셀 비율")
+                        st.caption("레이어 토글: 지도 우상단 레이어 컨트롤에서 ExG·식생마스크 켜기")
 
             st.divider()
 
@@ -502,20 +904,31 @@ with tab1:
             st.markdown("**🗺 전체 복원 구역 요약 — 구역별 추천 Top 3**")
             card_cols = st.columns(4)
             for i, s in enumerate(ZONE_CODE):
-                top3 = recommend_for(lib, s, 3)
+                top3 = rec_cache[s].head(3)
                 color = ZONE_PAL[s]
                 with card_cols[i]:
                     html = (f'<div style="background:#fafafa;border-left:4px solid {color};'
                             f'border-radius:4px;padding:10px 12px;">'
                             f'<div style="font-weight:bold;color:{color};font-size:13px;margin-bottom:4px;">'
                             f'{ZONE_NAME[s]}</div>'
-                            f'<div style="font-size:10px;color:#666;margin-bottom:6px;">{ZONE_DESC[s]}</div>')
+                            f'<div style="font-size:12px;color:#555;margin-bottom:8px;">{ZONE_DESC[s]}</div>')
                     for _, row in top3.iterrows():
                         html += (f'<div style="display:flex;justify-content:space-between;'
-                                 f'font-size:12px;padding:2px 0;border-bottom:1px solid #eee;">'
+                                 f'font-size:13px;padding:3px 0;border-bottom:1px solid #eee;">'
                                  f'<span>{int(row["순위"])}. {row["name_kor"]} ({row["form_grp"]})</span>'
                                  f'<span style="font-weight:bold;color:{color};">{row["추천점수"]}점</span>'
                                  f'</div>')
+                    # 외래종 참고 섹션 (구역 풀에 외래종이 있을 때만)
+                    aliens = alien_cache.get(s, pd.DataFrame())
+                    if not aliens.empty:
+                        html += ('<div style="margin-top:8px;padding:5px 7px;'
+                                 'background:#f0f0f0;border-radius:4px;">'
+                                 '<div style="font-size:10px;color:#999;margin-bottom:3px;">'
+                                 '참고 (외래종 — 조달 용이하나 확산 주의)</div>')
+                        for _, a in aliens.iterrows():
+                            html += (f'<div style="font-size:11px;color:#aaa;padding:1px 0;">'
+                                     f'{a["name_kor"]} ({a["form_grp"]}) — {a["참고점수"]}점</div>')
+                        html += '</div>'
                     html += '</div>'
                     st.markdown(html, unsafe_allow_html=True)
 
@@ -523,21 +936,50 @@ with tab1:
 
             # ── 구역별 상세 추천 ─────────────────────────────
             st.markdown(f"**🌱 [{ZONE_NAME[zone_sel]}] 추천 식물 상세**")
-            rec = recommend_for(lib, zone_sel, 8)
+            rec = rec_cache[zone_sel]
 
-            # 점수 차트
-            st.plotly_chart(score_chart(rec), use_container_width=True)
+            # 점수 차트 (외래종 회색 막대 포함)
+            alien_rec = alien_cache.get(zone_sel, pd.DataFrame())
+            st.plotly_chart(score_chart(rec, alien_rec), use_container_width=True)
+            with st.expander("📖 점수 구성 설명"):
+                st.markdown(
+                    "- 🟩 **환경 적합 (최대 50점)** — 구역 CSR 생태전략과 생활형이 맞는 정도. "
+                    "S1(개척R)·S2(경쟁C)·S3(경쟁C)·S4(내성S) 기준으로 종의 CSR 비율을 비교.\n"
+                    "- 🟦 **정착 (최대 25점)** — SLA(비엽면적) 기반 초기 정착력. "
+                    "값이 클수록 잎이 얇고 빠른 광합성 → 개방지 조기 정착에 유리.\n"
+                    "- 🟧 **안전 (최대 25점)** — LDMC(잎 건조질량비) 기반 장기 생존력. "
+                    "값이 클수록 잎이 두껍고 질겨 건조·척박 환경에서도 생존 안정."
+                )
 
-            # 종 테이블
-            disp_cols = ["순위","name_kor","form_grp","추천점수","추천이유"]
-            disp_names = {"순위":"순위","name_kor":"식물 이름","form_grp":"생활형",
-                          "추천점수":"추천 점수","추천이유":"추천 이유"}
+            # ── 자생종 추천 표 ─────────────────────────────
+            disp_cols  = ["순위","name_kor","form_grp","추천점수","추천이유"]
+            disp_names = {"순위":"순위","name_kor":"식물 이름",
+                          "form_grp":"생활형","추천점수":"추천 점수","추천이유":"추천 이유"}
             st.dataframe(
                 rec[disp_cols].rename(columns=disp_names),
                 use_container_width=True, hide_index=True,
                 column_config={"추천 점수": st.column_config.ProgressColumn(
                     "추천 점수", min_value=0, max_value=100, format="%d점")},
             )
+
+            # ── 외래종 참고 표 ──────────────────────────────
+            if not alien_rec.empty:
+                st.markdown(
+                    '<p style="font-size:12px;color:#888;margin:12px 0 4px 0;">'
+                    '⚠ 참고 — 외래종 (조달 용이하나 확산 주의 / 자생종 우선 후 보조 활용 권고)</p>',
+                    unsafe_allow_html=True,
+                )
+                a_disp = alien_rec.copy()
+                a_disp["순위"] = [f"참고 {i+1}" for i in range(len(a_disp))]
+                a_disp_cols  = ["순위","name_kor","form_grp","참고점수"]
+                a_disp_names = {"순위":"순위","name_kor":"식물 이름",
+                                "form_grp":"생활형","참고점수":"참고 점수"}
+                st.dataframe(
+                    a_disp[a_disp_cols].rename(columns=a_disp_names),
+                    use_container_width=True, hide_index=True,
+                    column_config={"참고 점수": st.column_config.ProgressColumn(
+                        "참고 점수", min_value=0, max_value=100, format="%d점")},
+                )
 
             # 선택 종 상세
             sel_name = st.selectbox(
@@ -549,28 +991,40 @@ with tab1:
             c1, c2 = st.columns(2)
             with c1:
                 st.metric("추천 점수", f"{sel['추천점수']}점")
-                env_lbl = "잘 맞음" if sel["환경적합"]>=0.75 else ("보통" if sel["환경적합"]>=0.5 else "잘 안 맞음")
-                st.metric("환경 적합", env_lbl, f"{sel['환경적합']*100:.0f}/100")
+                env_lbl = "잘 맞음" if sel["환경적합"]>=0.75 else ("부분 적합" if sel["환경적합"]>=0.5 else "적합도 낮음")
+                st.metric("환경 적합도", env_lbl, f"{sel['환경적합']*100:.0f}/100")
             with c2:
                 est_v = sel.get("op_establishment", 0.5) or 0.5
                 saf_v = sel.get("op_safe_growth", 0.7) or 0.7
-                st.metric("자리잡기 (정착)", "빠름" if est_v>=0.8 else ("보통" if est_v>=0.6 else "느림"),
+                st.metric("정착 속도", "빠름" if est_v>=0.8 else ("보통" if est_v>=0.6 else "느림"),
                           f"{est_v*100:.0f}/100")
-                st.metric("번짐 안전성", "안전" if saf_v>=0.8 else ("주의" if saf_v<=0.5 else "보통"),
+                st.metric("확산 안전성", "안전" if saf_v>=0.8 else ("⚠ 주의" if saf_v<=0.5 else "보통"),
                           f"{saf_v*100:.0f}/100")
             c_v = sel.get("c_percent"); r_v = sel.get("r_percent"); s_v = sel.get("s_percent")
+            # 💡 한 줄 추천 이유 (시연용)
+            _zone_why = {
+                "S1": "맨땅·급경사라 흙 유실 차단이 시급합니다. 빠르게 퍼지는 개척형이 1순위입니다.",
+                "S2": "나지이지만 경사가 완만합니다. 첫 식물 정착으로 토양 형성을 시작합니다.",
+                "S3": "이미 풀·관목이 있습니다. 경쟁력 있는 식물로 숲 천이를 촉진합니다.",
+                "S4": "큰 나무 그늘 아래입니다. 적은 빛에서도 버티는 내성 식물이 필요합니다.",
+            }
             if not pd.isna(c_v):
-                st.caption(f"생태전략 CSR: C{c_v:.0f} · S{s_v:.0f} · R{r_v:.0f}  "
-                           f"(구역 선호 {PREF_KOR[SIT_PREF[zone_sel]]})")
+                dom = ["C","S","R"][int(np.argmax([float(c_v), float(s_v), float(r_v)]))]
+                dom_str = (f" **{sel_name}**은(는) {PREF_KOR[dom]} 전략이 강해 이 구역 조건과 잘 맞습니다."
+                           if dom == SIT_PREF[zone_sel]
+                           else f" **{sel_name}**은(는) {PREF_KOR[dom]} 전략 종으로, 정착·안전 점수로 순위가 결정됩니다.")
+                st.info(f"💡 {_zone_why[zone_sel]}{dom_str}")
+                st.caption(f"생태전략 CSR: C{c_v:.0f} · S{s_v:.0f} · R{r_v:.0f}  (구역 선호: {PREF_KOR[SIT_PREF[zone_sel]]})")
             else:
+                st.info(f"💡 {_zone_why[zone_sel]}")
                 st.caption("CSR 데이터 없음 → 중립 0.5 처리")
-            st.caption(":orange[조달 점수는 데이터 조사 중 — 현재 점수 미반영]")
+            st.caption("📦 추천 목록은 현지 조달 가능 수준으로 검토된 59종 내에서 선별됩니다. 단, 수급 가능 여부는 시기·공급처 상황에 따라 변동될 수 있으므로 참고사항으로 활용하세요.")
 
             st.divider()
 
             # ── 내보내기 ─────────────────────────────────────
             st.markdown("**📤 내보내기**")
-            dl1, dl2, dl3 = st.columns(3)
+            dl1, dl2, dl3, dl4 = st.columns(4)
             today = datetime.date.today().strftime("%Y%m%d")
             with dl1:
                 st.download_button(
@@ -589,7 +1043,7 @@ with tab1:
             with dl3:
                 all_rows = []
                 for s in ZONE_CODE:
-                    df_s = recommend_for(lib, s, 3).copy()
+                    df_s = rec_cache[s].head(3).copy()
                     df_s["구역코드"] = s
                     df_s["구역명"] = ZONE_NAME[s]
                     all_rows.append(df_s)
@@ -600,10 +1054,54 @@ with tab1:
                     file_name=f"ReSeed_전체구역_{today}.csv",
                     mime="text/csv",
                 )
+            with dl4:
+                st.download_button(
+                    "📍 파종지점 CSV",
+                    data=drop_points_csv_bytes(ms["markers"], zone_codes_for_markers, rec_cache),
+                    file_name=f"ReSeed_파종지점_{today}.csv",
+                    mime="text/csv",
+                    help="드롭점마다 좌표·구역·추천 Top3 종 포함",
+                )
 
-            st.markdown('<p class="score-note">뿌릴 수 있는 자생식물 44종 중 선별. 정착·안전은 내 형질DB의 CSR 실측 기반 (일부 생활형 추정). 조달·지형 데이터 추가 시 자동 반영.</p>',
+            st.markdown('<p class="score-note">추천 점수 = 환경 적합(CSR 전략 + 생활형) + 현장 실행력(정착·안전 생장). 조달 가능성은 59종 목록 선별 단계에서 이미 반영되어 점수에 별도 포함하지 않습니다. 수급 가능 여부는 시기·공급처 상황에 따라 변동될 수 있습니다. ⚠ 표시 = 귀화식물(외래종) — 현장 확산 모니터링 권장.</p>',
                         unsafe_allow_html=True)
 
+            with st.expander("📐 점수 산출 방식", expanded=False):
+                st.markdown("""
+**총점 100점 만점** — 환경 적합(50점) + 정착 속도(25점) + 확산 안전(25점)
+
+| 항목 | 배점 | 산출 방법 |
+|---|---|---|
+| **환경 적합** | 50점 | 생활형 일치도×0.6 + CSR 생태전략×0.4 (C1: CSR 저가중치) |
+| **정착 속도** | 25점 | op_establishment(0–1) × 25 — SLA 기반, 높을수록 빠른 피복 |
+| **확산 안전** | 25점 | op_safe_growth(0–1) × 25 — LDMC 기반, 높을수록 생존 안정 |
+
+**구역별 가중치** (환경 적합 : 현장 실행)
+- S1 긴급 안정화: 35 : 65 — 침식 대응이 급하므로 정착 속도 우선
+- S2 개척 파종: 60 : 40 — 올바른 생태형 선택이 더 중요
+- S3 천이 촉진: 65 : 35 — 장기 군락 구성 고려
+- S4 하층 보완: 50 : 50 — 균형
+
+CSR 데이터가 없는 종은 중립값(0.5) 처리됩니다.
+""")
+
+
+
+# ════════════════════════════════════════════════════════════
+# 앱 하단 고정 — 주의사항
+# ════════════════════════════════════════════════════════════
+st.divider()
+st.markdown("""
+<div style="font-size:11px;color:#9e9e9e;line-height:1.8;padding:4px 0 12px 0;">
+<strong>⚠ 주의사항</strong><br>
+ReSeed는 드론 영상 분석을 바탕으로 복원 계획 수립을 돕는 <strong>의사결정 지원 도구</strong>입니다.
+제시된 구역 분류와 식물 추천은 알고리즘이 산출한 참고 정보이며,
+현장의 토양·지형·미기후·수계·법적 보호종 등 실제 조건에 따라 결과가 달라질 수 있습니다.
+라이브러리 데이터의 한계 및 모델 불확실성이 존재하므로
+출력값을 확신하거나 맹신하지 마시고,
+<strong>최종 복원 계획과 시공 결정은 반드시 생태 복원 전문가의 현장 검토를 거쳐 이루어지시기 바랍니다.</strong>
+</div>
+""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════
 # TAB 2 — 종 라이브러리 관리
@@ -615,12 +1113,14 @@ with tab2:
 
     # ── 현재 목록 ────────────────────────────────────────────
     with st.expander("📋 현재 등록 종 목록 보기", expanded=True):
-        view_cols = ["name_kor","name_sci","form_grp","c_percent","s_percent","r_percent",
+        lib_disp = lib.copy()
+        lib_disp["외래종여부"] = lib_disp["is_alien"].apply(lambda x: "⚠ 외래종" if x else "")
+        view_cols = ["name_kor","외래종여부","name_sci","form_grp","c_percent","s_percent","r_percent",
                      "op_establishment","op_safe_growth","op_sourcing"]
-        view_names = {"name_kor":"국문명","name_sci":"학명","form_grp":"생활형",
+        view_names = {"name_kor":"국문명","외래종여부":"주의","name_sci":"학명","form_grp":"생활형",
                       "c_percent":"C%","s_percent":"S%","r_percent":"R%",
                       "op_establishment":"정착","op_safe_growth":"안전","op_sourcing":"조달"}
-        st.dataframe(lib[view_cols].rename(columns=view_names),
+        st.dataframe(lib_disp[view_cols].rename(columns=view_names),
                      use_container_width=True, hide_index=True)
 
     st.divider()
@@ -636,6 +1136,7 @@ with tab2:
             new_sci   = st.text_input("학명",     placeholder="예) Prunus tomentosa")
             new_form  = st.selectbox("생활형 *", ["교목","관목","초본","덩굴"])
             new_memo  = st.text_input("조달처 메모", placeholder="예) 국립종자원 기증 2026-06")
+            new_alien = st.checkbox("⚠ 외래종 (귀화식물)", value=False)
         with fc2:
             st.markdown("**CSR 값** (없으면 빈칸 — 중립 처리)")
             new_c = st.number_input("C% (경쟁성)", min_value=0, max_value=100, value=0, step=1)
@@ -647,6 +1148,8 @@ with tab2:
         if submitted:
             if not new_kor.strip():
                 st.error("국문명은 필수입니다.")
+            elif csr_known and (new_c + new_s + new_r) != 100:
+                st.error(f"CSR 합이 {new_c + new_s + new_r}입니다. C + S + R = 100 이어야 합니다. (현재 C:{new_c} + S:{new_s} + R:{new_r})")
             elif new_kor.strip() in lib["name_kor"].values:
                 st.warning(f"'{new_kor}' 은 이미 등록되어 있습니다.")
             else:
@@ -667,6 +1170,7 @@ with tab2:
                     "name_kor": new_kor.strip(), "name_sci": new_sci.strip(),
                     "form_grp": new_form, "height_cl": np.nan,
                     "form_grp_ref": np.nan, "form_match_ref": np.nan,
+                    "is_alien": bool(new_alien),
                     "confidence": "사용자입력", "stock": 0,
                     "channel_cnt": 0,
                     "op_sourcing": 0.5,
