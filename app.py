@@ -21,6 +21,7 @@ import folium
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
+from streamlit_folium import st_folium
 
 # ── 경로 설정 ──────────────────────────────────────────────
 BASE       = Path(__file__).parent
@@ -588,7 +589,7 @@ def build_map(meta: dict, lib: pd.DataFrame, spacing_m: float = 2,
 
     folium.LayerControl(collapsed=False).add_to(m)
     m.fit_bounds([[b[1], b[0]], [b[3], b[2]]])
-    return m._repr_html_()
+    return m
 
 
 # ════════════════════════════════════════════════════════════
@@ -854,10 +855,10 @@ with tab1:
 
             # 지도
             with st.spinner("🛰 지도 생성 중…"):
-                map_html = build_map(meta, lib, spacing_m,
-                                     layers=_layers,
-                                     tops=tops)
-            st.components.v1.html(map_html, height=440, scrolling=False)
+                folium_map = build_map(meta, lib, spacing_m,
+                                      layers=_layers,
+                                      tops=tops)
+            st_folium(folium_map, height=440, returned_objects=[])
             with st.expander("🗺 지도 레이어 설명"):
                 st.markdown(
                     "지도 우상단 레이어 컨트롤에서 각 레이어를 켜고 끌 수 있습니다.\n\n"
@@ -941,7 +942,7 @@ with tab1:
 
             # 점수 차트 (외래종 회색 막대 포함)
             alien_rec = alien_cache.get(zone_sel, pd.DataFrame())
-            st.plotly_chart(score_chart(rec, alien_rec), use_container_width=True)
+            st.plotly_chart(score_chart(rec, alien_rec))
             with st.expander("📖 점수 구성 설명"):
                 st.markdown(
                     "- 🟩 **환경 적합 (최대 50점)** — 구역 CSR 생태전략과 생활형이 맞는 정도. "
@@ -958,7 +959,7 @@ with tab1:
                           "form_grp":"생활형","추천점수":"추천 점수","추천이유":"추천 이유"}
             st.dataframe(
                 rec[disp_cols].rename(columns=disp_names),
-                use_container_width=True, hide_index=True,
+                hide_index=True,
                 column_config={"추천 점수": st.column_config.ProgressColumn(
                     "추천 점수", min_value=0, max_value=100, format="%d점")},
             )
@@ -977,7 +978,7 @@ with tab1:
                                 "form_grp":"생활형","참고점수":"참고 점수"}
                 st.dataframe(
                     a_disp[a_disp_cols].rename(columns=a_disp_names),
-                    use_container_width=True, hide_index=True,
+                    hide_index=True,
                     column_config={"참고 점수": st.column_config.ProgressColumn(
                         "참고 점수", min_value=0, max_value=100, format="%d점")},
                 )
@@ -1122,7 +1123,7 @@ with tab2:
                       "c_percent":"C%","s_percent":"S%","r_percent":"R%",
                       "op_establishment":"정착","op_safe_growth":"안전","op_sourcing":"조달"}
         st.dataframe(lib_disp[view_cols].rename(columns=view_names),
-                     use_container_width=True, hide_index=True)
+                     hide_index=True)
 
     st.divider()
 
@@ -1224,7 +1225,7 @@ with tab2:
                 if len(new_df) == 0:
                     st.info("추가할 새 종이 없습니다.")
                 else:
-                    st.dataframe(new_df, use_container_width=True, hide_index=True)
+                    st.dataframe(new_df, hide_index=True)
                     if st.button(f"✅ {len(new_df)}종 추가 확정"):
                         # 기본값 채우기
                         for col in ["c_percent","s_percent","r_percent"]:
