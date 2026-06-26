@@ -2,6 +2,7 @@
 ReSeed — 드론 시드볼 살포 의사결정 시스템 (Python/Streamlit 버전)
 변환일: 2026-06-22  |  원본: app_v5.R (R/Shiny)
 """
+from __future__ import annotations
 import math
 import io
 import base64
