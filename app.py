@@ -44,8 +44,8 @@ ZONE_NAME = {
     "S3": "천이 촉진 구역",   "S4": "하층 보완 구역",
 }
 ZONE_DESC = {
-    "S1": "맨땅·급경사·침식 위험 — 빨리 덮어 흙을 잡아야 하는 곳",
-    "S2": "맨땅·완경사 — 처음 식물을 들이는 곳",
+    "S1": "집중 나지·고황폐도 — 주변 식생 없고 토양 노출 심각, 즉시 피복 필요",
+    "S2": "분산 나지·중황폐도 — 인접 식생 존재, 개척 파종으로 자연 회복 유도",
     "S3": "풀·작은나무 단계 — 숲으로 키워갈 곳",
     "S4": "큰나무 우거짐 — 그늘 아래를 채울 곳",
 }
@@ -379,43 +379,34 @@ def classify_zones_from_tif(tif_path_str: str) -> dict:
     layer[valid & (chm > 1.5) & (chm <= 5.0)] = 2  # 중간
     layer[valid & (chm > 5.0)] = 3    # 교목
 
-    # 합성 DTM (x,y를 0~100으로 정규화)
-    ys_idx = np.linspace(0, 100, out_h)
-    xs_idx = np.linspace(0, 100, out_w)
-    xx, yy = np.meshgrid(xs_idx, ys_idx)
-    dtm = (0.10 * xx + 0.04 * yy
-           + 8 * np.sin(xx / 25)
-           + 6 * np.cos(yy / 30)
-           + 4 * np.sin((xx + yy) / 18))
-
-    # Slope (gradient → arctan → degrees)
-    dy, dx = np.gradient(dtm)
-    slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
-
-    # Bare fraction (5×5 uniform filter, numpy conv 대체)
-    bare_f32 = bare.astype(np.float32)
-    # 2D convolution using sliding_window_view
+    # 나지 밀도 — 5×5 윈도우 내 나지 픽셀 비율
     from numpy.lib.stride_tricks import sliding_window_view
     pad = 2
+    bare_f32 = bare.astype(np.float32)
     bare_padded = np.pad(bare_f32, pad, mode='edge')
     windows = sliding_window_view(bare_padded, (5, 5))
-    gb = windows.mean(axis=(-2, -1))
+    gb = windows.mean(axis=(-2, -1))  # [0, 1]
 
-    # Erosion proxy
-    ero_proxy = 0.6 * (slope / 35.0) + 0.4 * gb
-    ero = np.ones_like(ero_proxy, dtype=np.int32)
-    ero[ero_proxy >= 0.33] = 2
-    ero[ero_proxy >= 0.66] = 3
-
-    # bd: 나지 또는 gb>=0.5
+    # bd: 나지 중심 픽셀 또는 주변 나지 밀도 ≥ 50%
     bd = (layer == 0) | (gb >= 0.5)
+
+    # S1 vs S2 구분 — 영상 기반 황폐도 점수 (LiDAR 없이 RGB만으로)
+    # ① gb : 주변 나지 밀도 → 높을수록 식생 씨앗 유입 차단, 표면 노출 집중
+    # ② exg_neg : ExG 음수 강도 → 강할수록 고반사율 나지(재·노출암·심한 교란 토양)
+    exg_neg = np.clip(-exg, 0, 1)
+    s1_score = 0.6 * gb + 0.4 * exg_neg
+
+    # 나지 픽셀 중 황폐도 상위 35% → S1(긴급안정화), 나머지 → S2(개척파종)
+    bd_pixels = valid & bd
+    s1_thresh = float(np.percentile(s1_score[bd_pixels], 65)) if bd_pixels.sum() > 10 else 0.5
+    s1_cond = bd & (s1_score >= s1_thresh)
 
     # 구역 분류
     zone = np.zeros((out_h, out_w), dtype=np.int32)
-    zone[valid & bd & ((ero == 3) | (slope > 30))] = 1  # S1
-    zone[valid & bd & ~((ero == 3) | (slope > 30))] = 2  # S2
-    zone[valid & ~bd & (layer == 3)] = 4  # S4
-    zone[valid & ~bd & (layer < 3)] = 3  # S3
+    zone[valid & s1_cond]            = 1  # S1: 긴급안정화
+    zone[valid & bd & ~s1_cond]      = 2  # S2: 개척파종
+    zone[valid & ~bd & (layer == 3)] = 4  # S4: 하층보완
+    zone[valid & ~bd & (layer < 3)]  = 3  # S3: 천이촉진
 
     # 구역별 픽셀 비율
     total_valid = valid.sum()
@@ -1015,8 +1006,8 @@ with tab1:
             c_v = sel.get("c_percent"); r_v = sel.get("r_percent"); s_v = sel.get("s_percent")
             # 💡 한 줄 추천 이유 (시연용)
             _zone_why = {
-                "S1": "맨땅·급경사라 흙 유실 차단이 시급합니다. 빠르게 퍼지는 개척형이 1순위입니다.",
-                "S2": "나지이지만 경사가 완만합니다. 첫 식물 정착으로 토양 형성을 시작합니다.",
+                "S1": "나지 밀도·황폐도가 높아 흙 유실 차단이 시급합니다. 빠르게 퍼지는 개척형이 1순위입니다.",
+                "S2": "나지이지만 인접 식생이 있어 자연 유입도 기대됩니다. 첫 식물 정착으로 토양 형성을 시작합니다.",
                 "S3": "이미 풀·관목이 있습니다. 경쟁력 있는 식물로 숲 천이를 촉진합니다.",
                 "S4": "큰 나무 그늘 아래입니다. 적은 빛에서도 버티는 내성 식물이 필요합니다.",
             }
