@@ -1085,8 +1085,8 @@ with tab1:
 | 항목 | 배점 | 산출 방법 |
 |---|---|---|
 | **환경 적합** | 50점 | 생활형 일치도×0.6 + CSR 생태전략×0.4 (C1: CSR 저가중치) |
-| **정착 속도** | 25점 | op_establishment(0–1) × 25 — SLA 기반, 높을수록 빠른 피복 |
-| **확산 안전** | 25점 | op_safe_growth(0–1) × 25 — LDMC 기반, 높을수록 생존 안정 |
+| **정착 속도** | 25점 | 비엽면적(SLA) 기반 정착력 지수 — 높을수록 초기 피복 빠름 |
+| **확산 안전** | 25점 | 잎 건조질량비(LDMC) 기반 생존력 지수 — 높을수록 장기 생존 안정 |
 
 **구역별 가중치** (환경 적합 : 현장 실행)
 - S1 긴급 안정화: 35 : 65 — 침식 대응이 급하므로 정착 속도 우선
@@ -1128,10 +1128,10 @@ with tab2:
         lib_disp = lib.copy()
         lib_disp["외래종여부"] = lib_disp["is_alien"].apply(lambda x: "⚠ 외래종" if x else "")
         view_cols = ["name_kor","외래종여부","name_sci","form_grp","c_percent","s_percent","r_percent",
-                     "op_establishment","op_safe_growth","op_sourcing"]
+                     "op_establishment","op_safe_growth"]
         view_names = {"name_kor":"국문명","외래종여부":"주의","name_sci":"학명","form_grp":"생활형",
                       "c_percent":"C%","s_percent":"S%","r_percent":"R%",
-                      "op_establishment":"정착","op_safe_growth":"안전","op_sourcing":"조달"}
+                      "op_establishment":"정착 속도","op_safe_growth":"생장 안전"}
         st.dataframe(lib_disp[view_cols].rename(columns=view_names),
                      hide_index=True)
 
