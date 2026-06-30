@@ -234,57 +234,117 @@ def make_summary_pdf(rec_cache: dict,
         c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
         c.drawString(tx + bmax + 2*rl_mm, by - bh * 0.1, f"{frac*100:.1f}%")
 
-    # ── 추천 점수 구성 차트 ────────────────────────────────
+    # ── 추천 점수 구성 (수평 스택 막대, 2×2 패널) ─────────────
     y = y - VIZ_H - 6*rl_mm
-    y = section(y, "추천 점수 구성  (환경 적합 · 정착 · 안전,  100점 만점)")
+    y = section(y, "추천 점수 구성  (환경 적합 · 정착 · 안전 세부 점수, 100점 만점)")
+
+    # 패널 치수
+    _GAP    = 5*rl_mm
+    _PW     = (W - 2*M - _GAP) / 2    # 패널 너비 ≈88 mm
+    _LBL    = 20*rl_mm                 # 종명 라벨
+    _SCR    = 10*rl_mm                 # 우측 총점 칸
+    _BAR    = _PW - _LBL - _SCR       # 바 실제 너비
+    _SP     = 5.8*rl_mm               # 종 행 높이
+    _PHDR   = 5.5*rl_mm               # 구역 헤더 높이
+    _AXH    = 4*rl_mm                 # X축 높이
+    _NSHOW  = 7                       # 구역당 최대 종 수
+    _PH     = _PHDR + _NSHOW * _SP + _AXH   # 패널 전체 높이 ≈47 mm
+
+    # 남은 공간 부족 시 새 페이지
+    _needed = 2 * _PH + _GAP + 10*rl_mm
+    if y - _needed < M + 28*rl_mm:
+        c.showPage()
+        y = H - M
+
+    for _pr in range(2):
+        for _pc in range(2):
+            _zi  = _pr * 2 + _pc
+            _s   = ZONE_CODE[_zi]
+            _top = rec_cache[_s].head(_NSHOW)
+            _n   = len(_top)
+            _ph  = _PHDR + _n * _SP + _AXH   # 실제 패널 높이
+
+            _px  = M + _pc * (_PW + _GAP)
+            _py  = y - _pr * (_PH + _GAP)
+
+            # 패널 배경
+            c.setFillColor(LGRAY)
+            c.roundRect(_px, _py - _ph, _PW, _ph, 2*rl_mm, fill=1, stroke=0)
+
+            # 구역 헤더
+            c.setFillColor(_ZC[_s])
+            c.roundRect(_px, _py - _PHDR, _PW, _PHDR, 2*rl_mm, fill=1, stroke=0)
+            c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
+            c.drawCentredString(_px + _PW/2, _py - _PHDR*0.65, ZONE_NAME[_s])
+
+            # X축 눈금선
+            _axy = _py - _PHDR - _n * _SP
+            for _xv in [25, 50, 75, 100]:
+                _gx = _px + _LBL + (_xv / 100) * _BAR
+                c.setStrokeColor(MGRAY); c.setLineWidth(0.25)
+                c.line(_gx, _py - _PHDR, _gx, _axy)
+                c.setFillColor(MGRAY); c.setFont(_KR_FONT, 4.8)
+                c.drawCentredString(_gx, _axy - _AXH * 0.68, str(_xv))
+
+            # 0점 기준선
+            c.setStrokeColor(INK); c.setLineWidth(0.5)
+            c.line(_px + _LBL, _py - _PHDR, _px + _LBL, _axy)
+
+            # 종별 행
+            for _ri, (_, _row) in enumerate(_top.iterrows()):
+                _ry  = _py - _PHDR - _ri * _SP
+                _es  = float(_row.get("환경적합",         0.5))
+                _ets = float(_row.get("op_establishment",  0.5))
+                _ss  = float(_row.get("op_safe_growth",    0.5))
+                _tot = int(_row["추천점수"])
+                _ew  = _es  * 50 / 100 * _BAR
+                _tw  = _ets * 25 / 100 * _BAR
+                _sw  = _ss  * 25 / 100 * _BAR
+                _bh  = _SP * 0.58
+                _by  = _ry - _SP + (_SP - _bh) / 2
+
+                # 행 배경
+                c.setFillColor(WHITE if _ri % 2 == 0 else rl_colors.HexColor("#EEF2F5"))
+                c.rect(_px, _ry - _SP, _PW, _SP, fill=1, stroke=0)
+
+                # 종명
+                c.setFillColor(INK); c.setFont(_KR_FONT, 6.2)
+                c.drawString(_px + 1.5*rl_mm, _ry - _SP*0.62, _row["name_kor"][:8])
+
+                # 환경 적합 바 (초록)
+                _bx = _px + _LBL
+                c.setFillColor(C_ENV); c.rect(_bx, _by, _ew, _bh, fill=1, stroke=0)
+                if _ew > 6*rl_mm:
+                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
+                    c.drawCentredString(_bx + _ew/2, _by + _bh*0.2, str(round(_es*50)))
+
+                # 정착 바 (파랑)
+                c.setFillColor(C_EST); c.rect(_bx+_ew, _by, _tw, _bh, fill=1, stroke=0)
+                if _tw > 4*rl_mm:
+                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
+                    c.drawCentredString(_bx+_ew + _tw/2, _by + _bh*0.2, str(round(_ets*25)))
+
+                # 안전 바 (주황)
+                c.setFillColor(C_SAF); c.rect(_bx+_ew+_tw, _by, _sw, _bh, fill=1, stroke=0)
+                if _sw > 4*rl_mm:
+                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
+                    c.drawCentredString(_bx+_ew+_tw + _sw/2, _by + _bh*0.2, str(round(_ss*25)))
+
+                # 총점 (우측 칸)
+                c.setFillColor(_ZC[_s]); c.setFont(_KR_BOLD, 7)
+                c.drawCentredString(_px + _PW - _SCR/2, _ry - _SP*0.62, f"{_tot}점")
 
     # 범례
-    legend = [("환경 적합 (CSR·생활형)", C_ENV),
-              ("정착 (SLA·초기 성장)", C_EST),
-              ("안전 (LDMC·생존력)", C_SAF)]
-    lx = M
-    for lt, lc in legend:
-        c.setFillColor(lc)
-        c.rect(lx, y - 3.5*rl_mm, 5*rl_mm, 3*rl_mm, fill=1, stroke=0)
+    _leg_y = y - 2*_PH - _GAP - 4*rl_mm
+    for _li, (_lt, _lc) in enumerate([("환경 적합 (CSR·생활형)", C_ENV),
+                                       ("정착 (SLA·초기 성장)",  C_EST),
+                                       ("안전 (LDMC·생존력)",    C_SAF)]):
+        _lx = M + _li * 60*rl_mm
+        c.setFillColor(_lc); c.rect(_lx, _leg_y-3*rl_mm, 5*rl_mm, 3*rl_mm, fill=1, stroke=0)
         c.setFillColor(INK); c.setFont(_KR_FONT, 6.5)
-        c.drawString(lx + 6*rl_mm, y - 1.5*rl_mm, lt)
-        lx += 48*rl_mm
-    y -= 6*rl_mm
+        c.drawString(_lx + 6*rl_mm, _leg_y - 1.5*rl_mm, _lt)
 
-    C_ROW = 7.5*rl_mm
-    LBL_W = 21*rl_mm
-    BAR_W = kw - LBL_W - 7*rl_mm
-    for i, s in enumerate(ZONE_CODE):
-        x    = M + i * (kw + 3*rl_mm)
-        top3 = rec_cache[s].head(3)
-        c.setFillColor(_ZC[s])
-        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 1.5*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7)
-        c.drawCentredString(x + kw/2, y - 3.5*rl_mm, ZONE_NAME[s])
-        ry = y - 5*rl_mm
-        for _, row in top3.iterrows():
-            env_w = float(row.get("환경적합", 0.5)) * 50 / 100 * BAR_W
-            est_w = float(row.get("op_establishment", 0.5)) * 25 / 100 * BAR_W
-            saf_w = float(row.get("op_safe_growth", 0.5)) * 25 / 100 * BAR_W
-            bx    = x + LBL_W
-            bh    = C_ROW * 0.52
-            by_   = ry - C_ROW + (C_ROW - bh) / 2
-            c.setFillColor(LGRAY if int(row["순위"]) % 2 == 1 else WHITE)
-            c.rect(x, ry - C_ROW, kw, C_ROW, fill=1, stroke=0)
-            c.setFillColor(INK); c.setFont(_KR_FONT, 6.8)
-            c.drawString(x + 1.5*rl_mm, ry - C_ROW * 0.55, row["name_kor"])
-            c.setFillColor(C_ENV)
-            c.rect(bx, by_, env_w, bh, fill=1, stroke=0)
-            c.setFillColor(C_EST)
-            c.rect(bx + env_w, by_, est_w, bh, fill=1, stroke=0)
-            c.setFillColor(C_SAF)
-            c.rect(bx + env_w + est_w, by_, saf_w, bh, fill=1, stroke=0)
-            c.setFillColor(INK); c.setFont(_KR_BOLD, 6.5)
-            c.drawString(bx + env_w + est_w + saf_w + 1*rl_mm,
-                         ry - C_ROW * 0.6, f"{row['추천점수']}점")
-            ry -= C_ROW
-
-    chart_bottom = y - 5*rl_mm - 3 * C_ROW
+    chart_bottom = _leg_y - 5*rl_mm
 
     # ── 용어 해설 ──────────────────────────────────────────
     y = chart_bottom - 5*rl_mm
