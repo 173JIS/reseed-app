@@ -356,24 +356,21 @@ def make_summary_pdf(rec_cache: dict,
                 c.setFillColor(INK); c.setFont(_KR_FONT, 6.2)
                 c.drawString(_px + 1.5*rl_mm, _ry - _SP*0.62, _row["name_kor"][:8])
 
-                # 환경 적합 바 (초록)
+                # 환경 적합 바 (초록) — 항상 표기, 바 밖으로 나와도 무방
                 _bx = _px + _LBL
                 c.setFillColor(C_ENV); c.rect(_bx, _by, _ew, _bh, fill=1, stroke=0)
-                if _ew > 6*rl_mm:
-                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
-                    c.drawCentredString(_bx + _ew/2, _by + _bh*0.2, str(round(_es*50)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
+                c.drawCentredString(_bx + _ew/2, _by + _bh*0.18, str(round(_es*50)))
 
                 # 정착 바 (파랑)
                 c.setFillColor(C_EST); c.rect(_bx+_ew, _by, _tw, _bh, fill=1, stroke=0)
-                if _tw > 4*rl_mm:
-                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
-                    c.drawCentredString(_bx+_ew + _tw/2, _by + _bh*0.2, str(round(_ets*25)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
+                c.drawCentredString(_bx+_ew + _tw/2, _by + _bh*0.18, str(round(_ets*25)))
 
                 # 안전 바 (주황)
                 c.setFillColor(C_SAF); c.rect(_bx+_ew+_tw, _by, _sw, _bh, fill=1, stroke=0)
-                if _sw > 4*rl_mm:
-                    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5)
-                    c.drawCentredString(_bx+_ew+_tw + _sw/2, _by + _bh*0.2, str(round(_ss*25)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
+                c.drawCentredString(_bx+_ew+_tw + _sw/2, _by + _bh*0.18, str(round(_ss*25)))
 
                 # 총점 (우측 칸)
                 c.setFillColor(_ZC[_s]); c.setFont(_KR_BOLD, 7)
@@ -1046,29 +1043,30 @@ def score_chart(df: pd.DataFrame, alien_df: pd.DataFrame | None = None) -> go.Fi
     est_hover = "<b>%{y}</b><br>정착: %{x:.0f}점<br><i>SLA 기반 초기 정착력</i><extra></extra>"
     saf_hover = "<b>%{y}</b><br>안전: %{x:.0f}점<br><i>LDMC 기반 장기 생존력</i><extra></extra>"
 
-    # 세그먼트 안 숫자 (너무 작으면 빈 문자열)
-    def _seg_txt(vals, threshold=3.5):
-        return [f"{round(v)}" if v >= threshold else "" for v in vals]
+    # 세그먼트 숫자 — constraintext="none" 으로 Plotly 자동 숨김 해제
+    env_txt = [f"{round(v)}" for v in all_env]
+    est_txt = [f"{round(v)}" for v in all_est]
+    saf_txt = [f"{round(v)}" for v in all_saf]
 
     fig.add_trace(go.Bar(
         name="환경 적합 (CSR·생활형)", y=all_names, x=all_env, orientation="h",
         marker_color=env_colors, hovertemplate=env_hover,
-        text=_seg_txt(all_env, 5), textposition="inside",
-        textfont=dict(color="white", size=10, family="Arial Black"),
+        text=env_txt, textposition="inside", constraintext="none",
+        textfont=dict(color="white", size=11, family="Arial Black"),
         insidetextanchor="middle",
     ))
     fig.add_trace(go.Bar(
         name="정착 (SLA·초기 성장)", y=all_names, x=all_est, orientation="h",
         marker_color=est_colors, hovertemplate=est_hover,
-        text=_seg_txt(all_est, 3.5), textposition="inside",
-        textfont=dict(color="white", size=10, family="Arial Black"),
+        text=est_txt, textposition="inside", constraintext="none",
+        textfont=dict(color="white", size=11, family="Arial Black"),
         insidetextanchor="middle",
     ))
     fig.add_trace(go.Bar(
         name="안전 (LDMC·생존력)", y=all_names, x=all_saf, orientation="h",
         marker_color=saf_colors, hovertemplate=saf_hover,
-        text=_seg_txt(all_saf, 3.5), textposition="inside",
-        textfont=dict(color="white", size=10, family="Arial Black"),
+        text=saf_txt, textposition="inside", constraintext="none",
+        textfont=dict(color="white", size=11, family="Arial Black"),
         insidetextanchor="middle",
     ))
 
