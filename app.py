@@ -93,7 +93,8 @@ def make_summary_pdf(rec_cache: dict,
                      zone_frac: dict | None = None,
                      exg_mean: float | None = None,
                      veg_cover: float | None = None,
-                     zone_png: str | None = None) -> bytes:
+                     zone_png: str | None = None,
+                     logo_path: str | None = None) -> bytes:
     """현재 분석 결과 → 1장 PDF 보고서 bytes"""
     import base64 as _b64
     buf = io.BytesIO()
@@ -105,105 +106,103 @@ def make_summary_pdf(rec_cache: dict,
     BLUE  = rl_colors.HexColor("#0000FF")
     LGRAY = rl_colors.HexColor("#F4F6F8")
     MGRAY = rl_colors.HexColor("#B0BEC5")
+    SGRAY = rl_colors.HexColor("#546e7a")
     WHITE = rl_colors.white
+    C_ENV = rl_colors.HexColor("#2e7d32")
+    C_EST = rl_colors.HexColor("#1e88e5")
+    C_SAF = rl_colors.HexColor("#ef6c00")
     _ZC   = {s: rl_colors.HexColor(ZONE_PAL[s]) for s in ZONE_CODE}
 
     today_str = datetime.date.today().strftime("%Y-%m-%d")
+    kw = (W - 2*M - 9*rl_mm) / 4
+
+    def section(y_, title_):
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 9.5)
+        c.drawString(M, y_, title_)
+        c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
+        c.line(M, y_ - 1.5*rl_mm, W - M, y_ - 1.5*rl_mm)
+        return y_ - 7*rl_mm
 
     # ── 헤더 배너 ──────────────────────────────────────────
     c.setFillColor(INK)
-    c.rect(0, H - 28*rl_mm, W, 28*rl_mm, fill=1, stroke=0)
-    c.setFillColor(WHITE)
-    c.setFont(_KR_BOLD, 16)
-    c.drawString(M, H - 14*rl_mm, "ReSeed  드론 시드볼 파종 의사결정 보고서")
-    c.setFont(_KR_FONT, 8.5)
+    c.rect(0, H - 26*rl_mm, W, 26*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 15)
+    c.drawString(M, H - 13*rl_mm, "ReSeed  드론 시드볼 파종 의사결정 보고서")
+    c.setFont(_KR_FONT, 8)
     area_str = f"{meta['area_ha']:.2f} ha  |  " if meta else ""
-    c.drawString(M, H - 22*rl_mm, f"{area_str}{today_str}  |  Invalab")
+    c.drawString(M, H - 21*rl_mm, f"{area_str}{today_str}  |  Invalab")
     c.setFillColor(BLUE)
-    c.rect(W - 28*rl_mm, H - 28*rl_mm, 28*rl_mm, 28*rl_mm, fill=1, stroke=0)
-    c.setFillColor(WHITE)
-    c.setFont(_KR_BOLD, 8)
-    c.drawCentredString(W - 14*rl_mm, H - 14*rl_mm, "v1.0")
-    c.setFont(_KR_FONT, 7)
-    c.drawCentredString(W - 14*rl_mm, H - 20*rl_mm, "ReSeed / Invalab")
+    c.rect(W - 26*rl_mm, H - 26*rl_mm, 26*rl_mm, 26*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
+    c.drawCentredString(W - 13*rl_mm, H - 13*rl_mm, "v1.0")
+    c.setFont(_KR_FONT, 6.5)
+    c.drawCentredString(W - 13*rl_mm, H - 19*rl_mm, "ReSeed / Invalab")
 
-    # ── KPI 박스 (구역 비율) ──────────────────────────────
-    y   = H - 44*rl_mm
-    kw  = (W - 2*M - 9*rl_mm) / 4
+    # ── KPI 박스 ──────────────────────────────────────────
+    y = H - 40*rl_mm
     for i, s in enumerate(ZONE_CODE):
         x       = M + i * (kw + 3*rl_mm)
         frac    = zone_frac.get(s, 0.0) if zone_frac else None
         val_str = f"{frac*100:.1f}%" if frac is not None else "—"
         c.setFillColor(LGRAY)
-        c.roundRect(x, y - 16*rl_mm, kw, 16*rl_mm, 3*rl_mm, fill=1, stroke=0)
+        c.roundRect(x, y - 14*rl_mm, kw, 14*rl_mm, 2.5*rl_mm, fill=1, stroke=0)
         c.setFillColor(_ZC[s])
-        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 3*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE)
-        c.setFont(_KR_BOLD, 7.5)
+        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 2.5*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7)
         c.drawCentredString(x + kw/2, y - 3.5*rl_mm, f"{s}  {ZONE_NAME[s]}")
-        c.setFillColor(INK)
-        c.setFont(_KR_BOLD, 14)
-        c.drawCentredString(x + kw/2, y - 11.5*rl_mm, val_str)
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 13)
+        c.drawCentredString(x + kw/2, y - 10.5*rl_mm, val_str)
 
     # ── 구역별 추천 종 테이블 ─────────────────────────────
-    y -= 22*rl_mm
-    c.setFillColor(INK); c.setFont(_KR_BOLD, 10)
-    c.drawString(M, y, "구역별 추천 종  (Top 3)")
-    c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
-    c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
-    y -= 7*rl_mm
-
-    ROW_H = 9*rl_mm
+    y -= 20*rl_mm
+    y = section(y, "구역별 추천 종  (Top 3)")
+    ROW_H = 8.5*rl_mm
     for i, s in enumerate(ZONE_CODE):
         x    = M + i * (kw + 3*rl_mm)
         top3 = rec_cache[s].head(3)
         c.setFillColor(_ZC[s])
-        c.roundRect(x, y - 6*rl_mm, kw, 6*rl_mm, 2*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 8)
-        c.drawCentredString(x + kw/2, y - 4*rl_mm, ZONE_NAME[s])
-        row_y = y - 6*rl_mm
+        c.roundRect(x, y - 5.5*rl_mm, kw, 5.5*rl_mm, 2*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
+        c.drawCentredString(x + kw/2, y - 3.8*rl_mm, ZONE_NAME[s])
+        row_y = y - 5.5*rl_mm
         for _, row in top3.iterrows():
             bg = LGRAY if int(row["순위"]) % 2 == 1 else WHITE
             c.setFillColor(bg)
             c.rect(x, row_y - ROW_H, kw, ROW_H, fill=1, stroke=0)
-            c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
-            c.drawString(x + 2*rl_mm, row_y - 4*rl_mm,
+            c.setFillColor(INK); c.setFont(_KR_BOLD, 7.5)
+            c.drawString(x + 2*rl_mm, row_y - 3.5*rl_mm,
                          f"{int(row['순위'])}. {row['name_kor']}")
-            c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 7.5)
-            c.drawRightString(x + kw - 2*rl_mm, row_y - 4*rl_mm,
+            c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 7)
+            c.drawRightString(x + kw - 2*rl_mm, row_y - 3.5*rl_mm,
                               f"{row['추천점수']}점")
-            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6.5)
-            c.drawString(x + 2*rl_mm, row_y - 8*rl_mm, row.get("form_grp", ""))
+            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6)
+            c.drawString(x + 2*rl_mm, row_y - 7.5*rl_mm, row.get("form_grp", ""))
             row_y -= ROW_H
 
+    table_bottom = y - 5.5*rl_mm - 3 * ROW_H
+
     # ── 식물 분포도 + 구역 면적 막대그래프 ───────────────────
-    table_bottom = y - 6*rl_mm - 3 * ROW_H
-    y = table_bottom - 8*rl_mm
-    c.setFillColor(INK); c.setFont(_KR_BOLD, 10)
-    c.drawString(M, y, "식물 분포도  &  구역 면적 비율")
-    c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
-    c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
-    y -= 7*rl_mm
+    y = table_bottom - 6*rl_mm
+    y = section(y, "식물 분포도  &  구역 면적 비율")
 
-    VIZ_H   = 52*rl_mm
-    left_w  = (W - 2*M) * 0.50 - 3*rl_mm
-    right_x = M + left_w + 6*rl_mm
-    right_w = W - M - right_x
+    VIZ_H  = 68*rl_mm
+    left_w = (W - 2*M) * 0.52 - 3*rl_mm
+    rx     = M + left_w + 6*rl_mm
+    rw     = W - M - rx
 
-    # 왼쪽 — 구역 분류 이미지
     if zone_png and zone_png.startswith("data:image/png;base64,"):
         try:
             raw = _b64.b64decode(zone_png.split(",", 1)[1])
-            img_reader = ImageReader(io.BytesIO(raw))
-            iw, ih = img_reader.getSize()
-            aspect = iw / ih if ih > 0 else 1.0
-            draw_w = min(left_w, VIZ_H * aspect)
-            draw_h = draw_w / aspect
-            c.drawImage(img_reader, M, y - draw_h, draw_w, draw_h,
+            ir  = ImageReader(io.BytesIO(raw))
+            iw, ih = ir.getSize()
+            asp    = iw / ih if ih > 0 else 1.0
+            dw     = min(left_w, VIZ_H * asp)
+            dh     = dw / asp
+            c.drawImage(ir, M, y - dh, dw, dh,
                         preserveAspectRatio=True, mask="auto")
             c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6.5)
-            c.drawString(M, y - draw_h - 3.5*rl_mm,
-                         "▲ S1 빨강  S2 주황  S3 노랑  S4 초록")
+            c.drawString(M, y - dh - 3*rl_mm,
+                         "▲ S1 빨강(긴급안정화)  S2 주황(개척파종)  S3 노랑(천이촉진)  S4 초록(하층보완)")
         except Exception:
             c.setFillColor(LGRAY)
             c.roundRect(M, y - VIZ_H, left_w, VIZ_H, 2*rl_mm, fill=1, stroke=0)
@@ -215,62 +214,147 @@ def make_summary_pdf(rec_cache: dict,
         c.setFillColor(MGRAY); c.setFont(_KR_FONT, 8)
         c.drawCentredString(M + left_w / 2, y - VIZ_H / 2, "TIF 분석 후 표시")
 
-    # 오른쪽 — 구역 면적 가로 막대그래프
-    label_w   = 20*rl_mm
-    pct_w     = 10*rl_mm
-    bar_max_w = right_w - label_w - pct_w
-    bar_row_h = VIZ_H / 4
-
+    lw2 = 19*rl_mm
+    bmax = rw - lw2 - 10*rl_mm
+    brh  = VIZ_H / 4
     for i, s in enumerate(ZONE_CODE):
-        frac  = zone_frac.get(s, 0.0) if zone_frac else 0.0
-        by    = y - (i + 0.5) * bar_row_h
-        bh    = bar_row_h * 0.50
-        # 구역 레이블
+        frac = zone_frac.get(s, 0.0) if zone_frac else 0.0
+        by   = y - (i + 0.5) * brh
+        bh   = brh * 0.48
         c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 8)
-        c.drawString(right_x, by + bh * 0.15, s)
+        c.drawString(rx, by + bh * 0.2, s)
         c.setFillColor(INK); c.setFont(_KR_FONT, 7)
-        c.drawString(right_x + 7*rl_mm, by + bh * 0.15,
-                     ZONE_NAME[s].replace(" 구역", ""))
-        # 배경 트랙
-        tx = right_x + label_w
+        c.drawString(rx + 7*rl_mm, by + bh * 0.2, ZONE_NAME[s].replace(" 구역", ""))
+        tx = rx + lw2
         c.setFillColor(LGRAY)
-        c.roundRect(tx, by - bh * 0.35, bar_max_w, bh * 0.7,
-                    1*rl_mm, fill=1, stroke=0)
-        # 채워진 바
-        fill_w = max(bar_max_w * frac, 2*rl_mm)
+        c.roundRect(tx, by - bh * 0.3, bmax, bh * 0.6, 1*rl_mm, fill=1, stroke=0)
+        fw = max(bmax * frac, 2*rl_mm)
         c.setFillColor(_ZC[s])
-        c.roundRect(tx, by - bh * 0.35, fill_w, bh * 0.7,
-                    1*rl_mm, fill=1, stroke=0)
-        # 퍼센트
+        c.roundRect(tx, by - bh * 0.3, fw, bh * 0.6, 1*rl_mm, fill=1, stroke=0)
         c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
-        c.drawString(tx + bar_max_w + 2*rl_mm, by - bh * 0.1,
-                     f"{frac*100:.1f}%")
+        c.drawString(tx + bmax + 2*rl_mm, by - bh * 0.1, f"{frac*100:.1f}%")
 
-    # ── 분석 통계 ─────────────────────────────────────────
-    y = y - VIZ_H - 10*rl_mm
+    # ── 추천 점수 구성 차트 ────────────────────────────────
+    y = y - VIZ_H - 6*rl_mm
+    y = section(y, "추천 점수 구성  (환경 적합 · 정착 · 안전,  100점 만점)")
+
+    # 범례
+    legend = [("환경 적합 (CSR·생활형)", C_ENV),
+              ("정착 (SLA·초기 성장)", C_EST),
+              ("안전 (LDMC·생존력)", C_SAF)]
+    lx = M
+    for lt, lc in legend:
+        c.setFillColor(lc)
+        c.rect(lx, y - 3.5*rl_mm, 5*rl_mm, 3*rl_mm, fill=1, stroke=0)
+        c.setFillColor(INK); c.setFont(_KR_FONT, 6.5)
+        c.drawString(lx + 6*rl_mm, y - 1.5*rl_mm, lt)
+        lx += 48*rl_mm
+    y -= 6*rl_mm
+
+    C_ROW = 7.5*rl_mm
+    LBL_W = 21*rl_mm
+    BAR_W = kw - LBL_W - 7*rl_mm
+    for i, s in enumerate(ZONE_CODE):
+        x    = M + i * (kw + 3*rl_mm)
+        top3 = rec_cache[s].head(3)
+        c.setFillColor(_ZC[s])
+        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 1.5*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7)
+        c.drawCentredString(x + kw/2, y - 3.5*rl_mm, ZONE_NAME[s])
+        ry = y - 5*rl_mm
+        for _, row in top3.iterrows():
+            env_w = float(row.get("환경적합", 0.5)) * 50 / 100 * BAR_W
+            est_w = float(row.get("op_establishment", 0.5)) * 25 / 100 * BAR_W
+            saf_w = float(row.get("op_safe_growth", 0.5)) * 25 / 100 * BAR_W
+            bx    = x + LBL_W
+            bh    = C_ROW * 0.52
+            by_   = ry - C_ROW + (C_ROW - bh) / 2
+            c.setFillColor(LGRAY if int(row["순위"]) % 2 == 1 else WHITE)
+            c.rect(x, ry - C_ROW, kw, C_ROW, fill=1, stroke=0)
+            c.setFillColor(INK); c.setFont(_KR_FONT, 6.8)
+            c.drawString(x + 1.5*rl_mm, ry - C_ROW * 0.55, row["name_kor"])
+            c.setFillColor(C_ENV)
+            c.rect(bx, by_, env_w, bh, fill=1, stroke=0)
+            c.setFillColor(C_EST)
+            c.rect(bx + env_w, by_, est_w, bh, fill=1, stroke=0)
+            c.setFillColor(C_SAF)
+            c.rect(bx + env_w + est_w, by_, saf_w, bh, fill=1, stroke=0)
+            c.setFillColor(INK); c.setFont(_KR_BOLD, 6.5)
+            c.drawString(bx + env_w + est_w + saf_w + 1*rl_mm,
+                         ry - C_ROW * 0.6, f"{row['추천점수']}점")
+            ry -= C_ROW
+
+    chart_bottom = y - 5*rl_mm - 3 * C_ROW
+
+    # ── 용어 해설 ──────────────────────────────────────────
+    y = chart_bottom - 5*rl_mm
+    y = section(y, "용어 해설")
+
+    GLOSSARY = [
+        ("ExG (식생지수)",      "2×초록 − 빨강 − 파랑. 양수=식생, 음수=나지."),
+        ("CSR 전략",           "C=경쟁형 · S=내성형 · R=개척형. 식물 생태전략 분류."),
+        ("SLA (비엽면적)",     "잎 면적÷건조중량. 높을수록 초기 성장 빠름."),
+        ("LDMC (잎건조질량비)", "잎 건조중량÷생체중량. 높을수록 내구성 강함."),
+        ("op_sourcing",        "공급 채널 가용성. 현재 임시값, 추후 실데이터 대체 예정."),
+        ("ExG 평균 해석",      "0.1 이상=식생 풍부 / 0~0.1=보통 / 0 미만=나지 우세."),
+    ]
+    half = (W - 2*M - 4*rl_mm) / 2
+    for idx, (term, desc) in enumerate(GLOSSARY):
+        gx = M if idx % 2 == 0 else M + half + 4*rl_mm
+        gy = y - (idx // 2) * 8.5*rl_mm
+        c.setFillColor(BLUE); c.setFont(_KR_BOLD, 7)
+        c.drawString(gx, gy, term)
+        c.setFillColor(SGRAY); c.setFont(_KR_FONT, 6.8)
+        c.drawString(gx, gy - 3.8*rl_mm, desc)
+
+    glossary_bottom = y - ((len(GLOSSARY) + 1) // 2) * 8.5*rl_mm
+
+    # ── 분석 통계 한 줄 ───────────────────────────────────
+    y = glossary_bottom - 4*rl_mm
     if exg_mean is not None:
-        c.setFillColor(INK); c.setFont(_KR_FONT, 8)
+        c.setFillColor(SGRAY); c.setFont(_KR_FONT, 7)
         c.drawString(M, y,
-            f"ExG 평균: {exg_mean:.3f}   |   식생 피복률: {veg_cover*100:.1f}%"
-            "   |   ※ RGB 기반 추정, LiDAR 미사용")
-        y -= 6*rl_mm
+            f"영상 분석: ExG 평균 {exg_mean:.3f}  |  식생 피복률 {veg_cover*100:.1f}%"
+            "  |  ※ RGB 드론 기반 추정, LiDAR 미사용")
+        y -= 5*rl_mm
 
     # ── 주의사항 박스 ──────────────────────────────────────
     y -= 2*rl_mm
     c.setFillColor(LGRAY)
-    c.roundRect(M, y - 13*rl_mm, W - 2*M, 13*rl_mm, 2*rl_mm, fill=1, stroke=0)
-    c.setFillColor(rl_colors.HexColor("#546e7a")); c.setFont(_KR_FONT, 7)
-    c.drawString(M + 3*rl_mm, y - 5*rl_mm,
+    c.roundRect(M, y - 11*rl_mm, W - 2*M, 11*rl_mm, 2*rl_mm, fill=1, stroke=0)
+    c.setFillColor(SGRAY); c.setFont(_KR_FONT, 6.8)
+    c.drawString(M + 3*rl_mm, y - 4*rl_mm,
         "⚠ ReSeed는 의사결정 지원 도구입니다. 최종 복원 계획은 생태 복원 전문가의 현장 검토를 거쳐 수립하세요.")
-    c.drawString(M + 3*rl_mm, y - 10*rl_mm,
-        "추천 종: 59종 라이브러리 기준 (SLA·LDMC·CSR 실형질 데이터). op_sourcing 현재 임시값 사용 중.")
+    c.drawString(M + 3*rl_mm, y - 8.5*rl_mm,
+        "추천 종: 59종 라이브러리 기준 (SLA·LDMC·CSR 실형질). op_sourcing 현재 임시값 사용 중.")
 
-    # ── 푸터 ──────────────────────────────────────────────
+    # ── 푸터 + 로고 ────────────────────────────────────────
+    FOOTER_H = 12*rl_mm
     c.setFillColor(INK)
-    c.rect(0, 0, W, 9*rl_mm, fill=1, stroke=0)
+    c.rect(0, 0, W, FOOTER_H, fill=1, stroke=0)
+
+    # 로고: 이미지 있으면 삽입, 없으면 텍스트 배지
+    logo_drawn = False
+    if logo_path and Path(logo_path).exists():
+        try:
+            lr = ImageReader(logo_path)
+            lw, lh = lr.getSize()
+            logo_h = FOOTER_H * 0.75
+            logo_w = logo_h * lw / lh
+            c.drawImage(lr, M, (FOOTER_H - logo_h) / 2,
+                        logo_w, logo_h, preserveAspectRatio=True, mask="auto")
+            logo_drawn = True
+        except Exception:
+            pass
+    if not logo_drawn:
+        c.setFillColor(BLUE)
+        c.roundRect(M, 1.8*rl_mm, 24*rl_mm, 8.5*rl_mm, 1.5*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 9.5)
+        c.drawCentredString(M + 12*rl_mm, 4.8*rl_mm, "INVALAB")
+
     c.setFillColor(WHITE); c.setFont(_KR_FONT, 7)
-    c.drawString(M, 3.5*rl_mm, "Invalab  |  ReSeed Project  |  내부용")
-    c.drawRightString(W - M, 3.5*rl_mm, today_str)
+    c.drawString(M + 27*rl_mm, 5*rl_mm, "ReSeed Project  |  내부용")
+    c.drawRightString(W - M, 5*rl_mm, today_str)
 
     c.save()
     return buf.getvalue()
