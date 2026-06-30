@@ -491,12 +491,15 @@ def make_summary_pdf(rec_cache: dict,
 st.set_page_config(page_title="🌱 ReSeed", layout="wide", page_icon="🌱")
 st.markdown("""
 <style>
-.header-bar{background:#1a4d2e;color:#fff;padding:12px 18px;border-radius:6px;margin-bottom:16px;}
-.header-bar h2{margin:0;font-size:20px;}
-.header-bar .sub{font-size:12px;opacity:.85;}
+.header-bar{background:#14351A;color:#fff;padding:14px 20px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;}
+.header-bar h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.3px;}
+.header-bar .sub{font-size:12px;opacity:.8;margin-top:3px;}
+.header-brand{text-align:right;font-size:11px;opacity:.7;line-height:1.6;}
+.header-brand b{font-size:13px;opacity:1;}
 .zone-card{border-radius:6px;padding:12px 14px;margin:4px;}
 .score-note{font-size:11px;color:#888;background:#fafafa;padding:4px 8px;border-radius:3px;}
-/* 로딩 중 흰 화면 대신 옅은 배경 유지 */
+.demo-banner{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:8px 14px;font-size:12px;color:#856404;margin-bottom:10px;}
+.how-to{background:#f0f7f0;border-left:3px solid #14351A;border-radius:0 6px 6px 0;padding:10px 14px;font-size:12px;color:#1a3a1a;margin-bottom:12px;line-height:1.8;}
 .stApp, [data-testid="stAppViewContainer"] {background-color:#f5f7f5 !important;}
 [data-testid="stMain"] > div:first-child {background-color:#f5f7f5;}
 </style>
@@ -504,8 +507,11 @@ st.markdown("""
 
 st.markdown("""
 <div class="header-bar">
-  <h2>🌱 ReSeed — 드론 시드볼 살포 의사결정 시스템</h2>
-  <div class="sub">드론 영상과 위치를 넣으면 → 대상지를 복원 구역으로 나누고 → 구역마다 뿌리기 좋은 식물을 추천합니다.</div>
+  <div>
+    <h2>🌱 ReSeed — 드론 시드볼 살포 의사결정 시스템</h2>
+    <div class="sub">드론 RGB 영상 업로드 → 복원 구역 자동 분류 → 구역별 최적 식물 추천 → PDF 보고서 생성</div>
+  </div>
+  <div class="header-brand"><b>InvaLab</b><br>생태 복원 AI 플랫폼</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1168,11 +1174,20 @@ tab1, tab2 = st.tabs(["🗺 드론 영상 분석 & 추천", "🌿 종 라이브�
 # TAB 1 — 분석 & 추천
 # ════════════════════════════════════════════════════════════
 with tab1:
+    st.markdown("""
+<div class="how-to">
+  <b>📋 사용 방법</b> &nbsp;
+  &nbsp;①&nbsp;드론 RGB 영상(GeoTIFF)을 업로드하거나 경로를 입력합니다
+  &nbsp;→&nbsp; ②&nbsp;구역 선택 후 결과를 확인합니다
+  &nbsp;→&nbsp; ③&nbsp;종합 요약 PDF를 다운로드합니다
+</div>
+""", unsafe_allow_html=True)
+
     col_in, col_out = st.columns([1, 2])
 
     # ── 입력 패널 ────────────────────────────────────────────
     with col_in:
-        st.subheader("① 입력")
+        st.subheader("① 영상 입력")
         local_path_str = st.text_input(
             "📁 드론 영상 경로 (GeoTIFF)",
             placeholder=r"예: Z:\1.Project\현장\result.tif",
@@ -1291,7 +1306,7 @@ with tab1:
 
     # ── 결과 패널 ────────────────────────────────────────────
     with col_out:
-        st.subheader("② 결과")
+        st.subheader("② 분석 결과")
         lib = st.session_state["lib"]
         # 추천 캐시 — 한 번만 계산해서 카드·차트·CSV 전부 재사용
         rec_cache   = {s: recommend_for(lib, s, 8) for s in ZONE_CODE}
@@ -1300,8 +1315,18 @@ with tab1:
                 for s in ZONE_CODE}
 
         if "meta" not in st.session_state:
-            st.info("← 왼쪽에서 드론 영상을 선택하면 결과가 여기에 나타납니다.")
+            st.markdown("""
+<div style="text-align:center;padding:60px 20px;color:#888;">
+  <div style="font-size:48px;margin-bottom:12px;">🛸</div>
+  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">드론 영상을 업로드하면 결과가 여기에 표시됩니다</div>
+  <div style="font-size:13px;">TIF 파일이 없다면 왼쪽의 <b>데모 영상으로 보기</b>를 체크하세요</div>
+</div>
+""", unsafe_allow_html=True)
         else:
+            _is_demo = st.session_state.get("_up_name") is None and not (local_path_str and Path(local_path_str).exists())
+            if _is_demo:
+                st.markdown('<div class="demo-banner">📍 <b>데모 모드</b> — 샘플 영상(경북 신세계 현장, 12.3ha) 기준 결과입니다. 실제 영상을 업로드하면 해당 현장 분석으로 전환됩니다.</div>', unsafe_allow_html=True)
+
             meta = st.session_state["meta"]
             ms   = st.session_state["ms"]
 
