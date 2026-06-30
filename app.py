@@ -153,33 +153,78 @@ def make_summary_pdf(rec_cache: dict,
         c.setFillColor(INK); c.setFont(_KR_BOLD, 13)
         c.drawCentredString(x + kw/2, y - 10.5*rl_mm, val_str)
 
-    # ── 구역별 추천 종 테이블 ─────────────────────────────
+    # ── 구역별 추천 종 세부점수 표 ────────────────────────────
     y -= 20*rl_mm
-    y = section(y, "구역별 추천 종  (Top 3)")
-    ROW_H = 8.5*rl_mm
+    y = section(y, "구역별 추천 종  Top 3  (환경 적합 / 정착 / 안전 / 총점)")
+
+    # 열 너비 (kw 내)
+    _TN = 15*rl_mm   # 종명
+    _TE = 6*rl_mm    # 환경
+    _TA = 6*rl_mm    # 정착
+    _TS = 6*rl_mm    # 안전
+    _TT = kw - _TN - _TE - _TA - _TS   # 총점(나머지)
+    _HDR_H = 5.5*rl_mm  # 구역 헤더 높이
+    _SHD_H = 4*rl_mm    # 컬럼 서브헤더 높이
+    _ROW_H = 7*rl_mm    # 데이터 행 높이
+
     for i, s in enumerate(ZONE_CODE):
         x    = M + i * (kw + 3*rl_mm)
         top3 = rec_cache[s].head(3)
-        c.setFillColor(_ZC[s])
-        c.roundRect(x, y - 5.5*rl_mm, kw, 5.5*rl_mm, 2*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
-        c.drawCentredString(x + kw/2, y - 3.8*rl_mm, ZONE_NAME[s])
-        row_y = y - 5.5*rl_mm
-        for _, row in top3.iterrows():
-            bg = LGRAY if int(row["순위"]) % 2 == 1 else WHITE
-            c.setFillColor(bg)
-            c.rect(x, row_y - ROW_H, kw, ROW_H, fill=1, stroke=0)
-            c.setFillColor(INK); c.setFont(_KR_BOLD, 7.5)
-            c.drawString(x + 2*rl_mm, row_y - 3.5*rl_mm,
-                         f"{int(row['순위'])}. {row['name_kor']}")
-            c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 7)
-            c.drawRightString(x + kw - 2*rl_mm, row_y - 3.5*rl_mm,
-                              f"{row['추천점수']}점")
-            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6)
-            c.drawString(x + 2*rl_mm, row_y - 7.5*rl_mm, row.get("form_grp", ""))
-            row_y -= ROW_H
 
-    table_bottom = y - 5.5*rl_mm - 3 * ROW_H
+        # 구역 헤더
+        c.setFillColor(_ZC[s])
+        c.roundRect(x, y - _HDR_H, kw, _HDR_H, 2*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
+        c.drawCentredString(x + kw/2, y - _HDR_H*0.65, ZONE_NAME[s])
+
+        # 컬럼 서브헤더
+        shy = y - _HDR_H
+        c.setFillColor(INK)
+        c.rect(x, shy - _SHD_H, kw, _SHD_H, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_FONT, 5.5)
+        for ht, hx_off, hw in [("종명", 0, _TN), ("환경", _TN, _TE),
+                                ("정착", _TN+_TE, _TA), ("안전", _TN+_TE+_TA, _TS),
+                                ("총점", _TN+_TE+_TA+_TS, _TT)]:
+            c.drawCentredString(x + hx_off + hw/2, shy - _SHD_H*0.65, ht)
+
+        # 컬럼 색 힌트 (1.2mm 띠)
+        for hx_off, hw, hc in [(_TN, _TE, C_ENV), (_TN+_TE, _TA, C_EST),
+                                (_TN+_TE+_TA, _TS, C_SAF), (_TN+_TE+_TA+_TS, _TT, _ZC[s])]:
+            c.setFillColor(hc)
+            c.rect(x + hx_off, shy - _SHD_H, hw, 1.2*rl_mm, fill=1, stroke=0)
+
+        # 데이터 행
+        ry = shy - _SHD_H
+        for _, row in top3.iterrows():
+            env_pt = round(float(row.get("환경적합",        0.5)) * 50)
+            est_pt = round(float(row.get("op_establishment", 0.5)) * 25)
+            saf_pt = round(float(row.get("op_safe_growth",   0.5)) * 25)
+            total  = int(row["추천점수"])
+
+            c.setFillColor(LGRAY if int(row["순위"]) % 2 == 1 else WHITE)
+            c.rect(x, ry - _ROW_H, kw, _ROW_H, fill=1, stroke=0)
+
+            # 종명
+            c.setFillColor(INK); c.setFont(_KR_FONT, 6.5)
+            c.drawString(x + 1.5*rl_mm, ry - _ROW_H*0.6,
+                         f"{int(row['순위'])}. {row['name_kor']}")
+
+            # 세부점수
+            for val, hx_off, hw, col in [
+                (str(env_pt), _TN,           _TE, C_ENV),
+                (str(est_pt), _TN+_TE,       _TA, C_EST),
+                (str(saf_pt), _TN+_TE+_TA,   _TS, C_SAF),
+                (f"{total}점",_TN+_TE+_TA+_TS, _TT, _ZC[s]),
+            ]:
+                c.setFillColor(col); c.setFont(_KR_BOLD, 7)
+                c.drawCentredString(x + hx_off + hw/2, ry - _ROW_H*0.6, val)
+
+            # 구분선
+            c.setStrokeColor(MGRAY); c.setLineWidth(0.2)
+            c.line(x, ry - _ROW_H, x + kw, ry - _ROW_H)
+            ry -= _ROW_H
+
+    table_bottom = y - _HDR_H - _SHD_H - 3 * _ROW_H
 
     # ── 식물 분포도 + 구역 면적 막대그래프 ───────────────────
     y = table_bottom - 6*rl_mm
@@ -1296,24 +1341,48 @@ with tab1:
 
             st.divider()
 
-            # ── 전체 구역 요약 카드 ──────────────────────────
+            # ── 전체 구역 요약 카드 (세부점수 표) ───────────────
             st.markdown("**🗺 전체 복원 구역 요약 — 구역별 추천 Top 3**")
             card_cols = st.columns(4)
             for i, s in enumerate(ZONE_CODE):
                 top3 = rec_cache[s].head(3)
                 color = ZONE_PAL[s]
                 with card_cols[i]:
+                    # 헤더
                     html = (f'<div style="background:#fafafa;border-left:4px solid {color};'
                             f'border-radius:4px;padding:10px 12px;">'
-                            f'<div style="font-weight:bold;color:{color};font-size:13px;margin-bottom:4px;">'
+                            f'<div style="font-weight:bold;color:{color};font-size:13px;margin-bottom:2px;">'
                             f'{ZONE_NAME[s]}</div>'
-                            f'<div style="font-size:12px;color:#555;margin-bottom:8px;">{ZONE_DESC[s]}</div>')
-                    for _, row in top3.iterrows():
-                        html += (f'<div style="display:flex;justify-content:space-between;'
-                                 f'font-size:13px;padding:3px 0;border-bottom:1px solid #eee;">'
-                                 f'<span>{int(row["순위"])}. {row["name_kor"]} ({row["form_grp"]})</span>'
-                                 f'<span style="font-weight:bold;color:{color};">{row["추천점수"]}점</span>'
-                                 f'</div>')
+                            f'<div style="font-size:11px;color:#777;margin-bottom:8px;">{ZONE_DESC[s]}</div>')
+                    # 표 헤더행
+                    th = ('background:#f0f0f0;font-size:10px;color:#555;'
+                          'padding:3px 4px;text-align:right;')
+                    th_l = th.replace('text-align:right', 'text-align:left')
+                    html += (f'<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                             f'<tr>'
+                             f'<th style="{th_l}">종명</th>'
+                             f'<th style="{th}" title="환경 적합 최대 50점">환경</th>'
+                             f'<th style="{th}" title="정착 최대 25점">정착</th>'
+                             f'<th style="{th}" title="안전 최대 25점">안전</th>'
+                             f'<th style="{th}" title="총점 100점 만점">총점</th>'
+                             f'</tr>')
+                    # 데이터 행
+                    for ri, (_, row) in enumerate(top3.iterrows()):
+                        env_pt = round(float(row.get("환경적합", 0.5)) * 50)
+                        est_pt = round(float(row.get("op_establishment", 0.5)) * 25)
+                        saf_pt = round(float(row.get("op_safe_growth", 0.5)) * 25)
+                        total  = int(row["추천점수"])
+                        bg = '#ffffff' if ri % 2 == 0 else '#f7f7f7'
+                        td = f'background:{bg};padding:4px 4px;text-align:right;'
+                        td_l = td.replace('text-align:right', 'text-align:left')
+                        html += (f'<tr>'
+                                 f'<td style="{td_l}">{int(row["순위"])}. {row["name_kor"]}</td>'
+                                 f'<td style="{td};color:#2e7d32;font-weight:600;">{env_pt}</td>'
+                                 f'<td style="{td};color:#1e88e5;font-weight:600;">{est_pt}</td>'
+                                 f'<td style="{td};color:#ef6c00;font-weight:600;">{saf_pt}</td>'
+                                 f'<td style="{td};color:{color};font-weight:700;">{total}점</td>'
+                                 f'</tr>')
+                    html += '</table>'
                     # 외래종 참고 섹션 (구역 풀에 외래종이 있을 때만)
                     aliens = alien_cache.get(s, pd.DataFrame())
                     if not aliens.empty:
