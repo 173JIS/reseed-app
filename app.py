@@ -24,6 +24,12 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors as rl_colors
+from reportlab.lib.units import mm as rl_mm
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 # ── 경로 설정 ──────────────────────────────────────────────
 BASE       = Path(__file__).parent
@@ -62,6 +68,147 @@ ZONE_SCORE_W = {
     "S3": (0.65, 0.35),  # 천이 촉진: 장기 군락 형성
     "S4": (0.50, 0.50),  # 하층 보완: 균형
 }
+
+# ── PDF 한글 폰트 등록 (Windows: Malgun / Linux: Nanum) ───────────────
+_KR_FONT, _KR_BOLD = "Helvetica", "Helvetica-Bold"
+_font_candidates = [
+    (Path("C:/Windows/Fonts/malgun.ttf"),   Path("C:/Windows/Fonts/malgunbd.ttf")),
+    (Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+     Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf")),
+]
+for _fp, _fb in _font_candidates:
+    if _fp.exists() and _fb.exists():
+        try:
+            pdfmetrics.registerFont(TTFont("_KR",  str(_fp)))
+            pdfmetrics.registerFont(TTFont("_KRB", str(_fb)))
+            _KR_FONT, _KR_BOLD = "_KR", "_KRB"
+        except Exception:
+            pass
+        break
+
+
+def make_summary_pdf(rec_cache: dict,
+                     meta: dict | None = None,
+                     zone_frac: dict | None = None,
+                     exg_mean: float | None = None,
+                     veg_cover: float | None = None) -> bytes:
+    """현재 분석 결과 → 1장 PDF 보고서 bytes"""
+    buf = io.BytesIO()
+    c   = rl_canvas.Canvas(buf, pagesize=A4)
+    W, H = A4
+    M = 14 * rl_mm
+
+    INK   = rl_colors.HexColor("#023047")
+    BLUE  = rl_colors.HexColor("#0000FF")
+    LGRAY = rl_colors.HexColor("#F4F6F8")
+    MGRAY = rl_colors.HexColor("#B0BEC5")
+    WHITE = rl_colors.white
+    _ZC   = {s: rl_colors.HexColor(ZONE_PAL[s]) for s in ZONE_CODE}
+
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    # ── 헤더 배너 ──────────────────────────────────────────
+    c.setFillColor(INK)
+    c.rect(0, H - 28*rl_mm, W, 28*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.setFont(_KR_BOLD, 16)
+    c.drawString(M, H - 14*rl_mm, "ReSeed  드론 시드볼 파종 의사결정 보고서")
+    c.setFont(_KR_FONT, 8.5)
+    area_str = f"{meta['area_ha']:.2f} ha  |  " if meta else ""
+    c.drawString(M, H - 22*rl_mm, f"{area_str}{today_str}  |  Invalab")
+    c.setFillColor(BLUE)
+    c.rect(W - 28*rl_mm, H - 28*rl_mm, 28*rl_mm, 28*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE)
+    c.setFont(_KR_BOLD, 8)
+    c.drawCentredString(W - 14*rl_mm, H - 14*rl_mm, "v1.0")
+    c.setFont(_KR_FONT, 7)
+    c.drawCentredString(W - 14*rl_mm, H - 20*rl_mm, "ReSeed / Invalab")
+
+    # ── KPI 박스 (구역 비율) ──────────────────────────────
+    y   = H - 44*rl_mm
+    kw  = (W - 2*M - 9*rl_mm) / 4
+    for i, s in enumerate(ZONE_CODE):
+        x       = M + i * (kw + 3*rl_mm)
+        frac    = zone_frac.get(s, 0.0) if zone_frac else None
+        val_str = f"{frac*100:.1f}%" if frac is not None else "—"
+        c.setFillColor(LGRAY)
+        c.roundRect(x, y - 16*rl_mm, kw, 16*rl_mm, 3*rl_mm, fill=1, stroke=0)
+        c.setFillColor(_ZC[s])
+        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 3*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE)
+        c.setFont(_KR_BOLD, 7.5)
+        c.drawCentredString(x + kw/2, y - 3.5*rl_mm, f"{s}  {ZONE_NAME[s]}")
+        c.setFillColor(INK)
+        c.setFont(_KR_BOLD, 14)
+        c.drawCentredString(x + kw/2, y - 11.5*rl_mm, val_str)
+
+    # ── 구역별 추천 종 테이블 ─────────────────────────────
+    y -= 22*rl_mm
+    c.setFillColor(INK)
+    c.setFont(_KR_BOLD, 10)
+    c.drawString(M, y, "구역별 추천 종  (Top 3)")
+    c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
+    c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
+    y -= 7*rl_mm
+
+    for i, s in enumerate(ZONE_CODE):
+        x    = M + i * (kw + 3*rl_mm)
+        top3 = rec_cache[s].head(3)
+        # 컬럼 헤더
+        c.setFillColor(_ZC[s])
+        c.roundRect(x, y - 6*rl_mm, kw, 6*rl_mm, 2*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 8)
+        c.drawCentredString(x + kw/2, y - 4*rl_mm, ZONE_NAME[s])
+        row_y = y - 6*rl_mm
+        for _, row in top3.iterrows():
+            bg = LGRAY if int(row["순위"]) % 2 == 1 else WHITE
+            c.setFillColor(bg)
+            c.rect(x, row_y - 9*rl_mm, kw, 9*rl_mm, fill=1, stroke=0)
+            c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
+            c.drawString(x + 2*rl_mm, row_y - 4*rl_mm,
+                         f"{int(row['순위'])}. {row['name_kor']}")
+            c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 7.5)
+            c.drawRightString(x + kw - 2*rl_mm, row_y - 4*rl_mm,
+                              f"{row['추천점수']}점")
+            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6.5)
+            c.drawString(x + 2*rl_mm, row_y - 8*rl_mm,
+                         row.get("form_grp", ""))
+            row_y -= 9*rl_mm
+
+    # ── 분석 통계 ─────────────────────────────────────────
+    y = min(r for r in [row_y] if r) - 8*rl_mm  # type: ignore[name-defined]
+    if exg_mean is not None:
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 9)
+        c.drawString(M, y, "영상 분석 요약")
+        c.setStrokeColor(MGRAY); c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
+        y -= 6*rl_mm
+        c.setFillColor(INK); c.setFont(_KR_FONT, 8)
+        c.drawString(M, y,
+            f"ExG 평균: {exg_mean:.3f}   |   식생 피복률: {veg_cover*100:.1f}%")
+        y -= 5*rl_mm
+        c.setFillColor(MGRAY); c.setFont(_KR_FONT, 7)
+        c.drawString(M, y, "※ RGB 드론 영상 기반 추정. LiDAR 미사용. 현장 전문가 검토 필요.")
+
+    # ── 주의사항 박스 ──────────────────────────────────────
+    y -= 8*rl_mm
+    c.setFillColor(LGRAY)
+    c.roundRect(M, y - 13*rl_mm, W - 2*M, 13*rl_mm, 2*rl_mm, fill=1, stroke=0)
+    c.setFillColor(rl_colors.HexColor("#546e7a")); c.setFont(_KR_FONT, 7)
+    c.drawString(M + 3*rl_mm, y - 5*rl_mm,
+        "⚠ ReSeed는 의사결정 지원 도구입니다. 최종 복원 계획은 생태 복원 전문가의 현장 검토를 거쳐 수립하세요.")
+    c.drawString(M + 3*rl_mm, y - 10*rl_mm,
+        "추천 종: 59종 라이브러리 기준 (SLA·LDMC·CSR 실형질 데이터). op_sourcing 현재 임시값 사용 중.")
+
+    # ── 푸터 ──────────────────────────────────────────────
+    c.setFillColor(INK)
+    c.rect(0, 0, W, 9*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE); c.setFont(_KR_FONT, 7)
+    c.drawString(M, 3.5*rl_mm, "Invalab  |  ReSeed Project  |  내부용")
+    c.drawRightString(W - M, 3.5*rl_mm, today_str)
+
+    c.save()
+    return buf.getvalue()
+
 
 # ── 페이지 설정 ────────────────────────────────────────────
 st.set_page_config(page_title="🌱 ReSeed", layout="wide", page_icon="🌱")
@@ -1053,18 +1200,20 @@ with tab1:
                     mime="text/csv",
                 )
             with dl3:
-                all_rows = []
-                for s in ZONE_CODE:
-                    df_s = rec_cache[s].head(3).copy()
-                    df_s["구역코드"] = s
-                    df_s["구역명"] = ZONE_NAME[s]
-                    all_rows.append(df_s)
-                df_all = pd.concat(all_rows)[["구역코드","구역명","순위","name_kor","name_sci","form_grp","추천점수","추천이유"]]
+                _pdf_zone_frac = _layers.get("zone_frac") if _layers else None
+                _pdf_exg       = _layers.get("exg_mean")  if _layers else None
+                _pdf_veg       = _layers.get("veg_cover") if _layers else None
                 st.download_button(
-                    "전체 구역 요약 CSV",
-                    data=df_to_csv_bytes(df_all),
-                    file_name=f"ReSeed_전체구역_{today}.csv",
-                    mime="text/csv",
+                    "전체 구역 요약 PDF",
+                    data=make_summary_pdf(
+                        rec_cache,
+                        meta=meta,
+                        zone_frac=_pdf_zone_frac,
+                        exg_mean=_pdf_exg,
+                        veg_cover=_pdf_veg,
+                    ),
+                    file_name=f"ReSeed_전체구역_{today}.pdf",
+                    mime="application/pdf",
                 )
             with dl4:
                 st.download_button(
