@@ -30,6 +30,7 @@ from reportlab.lib.units import mm as rl_mm
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 
 # ── 경로 설정 ──────────────────────────────────────────────
 BASE       = Path(__file__).parent
@@ -91,8 +92,10 @@ def make_summary_pdf(rec_cache: dict,
                      meta: dict | None = None,
                      zone_frac: dict | None = None,
                      exg_mean: float | None = None,
-                     veg_cover: float | None = None) -> bytes:
+                     veg_cover: float | None = None,
+                     zone_png: str | None = None) -> bytes:
     """현재 분석 결과 → 1장 PDF 보고서 bytes"""
+    import base64 as _b64
     buf = io.BytesIO()
     c   = rl_canvas.Canvas(buf, pagesize=A4)
     W, H = A4
@@ -144,17 +147,16 @@ def make_summary_pdf(rec_cache: dict,
 
     # ── 구역별 추천 종 테이블 ─────────────────────────────
     y -= 22*rl_mm
-    c.setFillColor(INK)
-    c.setFont(_KR_BOLD, 10)
+    c.setFillColor(INK); c.setFont(_KR_BOLD, 10)
     c.drawString(M, y, "구역별 추천 종  (Top 3)")
     c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
     c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
     y -= 7*rl_mm
 
+    ROW_H = 9*rl_mm
     for i, s in enumerate(ZONE_CODE):
         x    = M + i * (kw + 3*rl_mm)
         top3 = rec_cache[s].head(3)
-        # 컬럼 헤더
         c.setFillColor(_ZC[s])
         c.roundRect(x, y - 6*rl_mm, kw, 6*rl_mm, 2*rl_mm, fill=1, stroke=0)
         c.setFillColor(WHITE); c.setFont(_KR_BOLD, 8)
@@ -163,7 +165,7 @@ def make_summary_pdf(rec_cache: dict,
         for _, row in top3.iterrows():
             bg = LGRAY if int(row["순위"]) % 2 == 1 else WHITE
             c.setFillColor(bg)
-            c.rect(x, row_y - 9*rl_mm, kw, 9*rl_mm, fill=1, stroke=0)
+            c.rect(x, row_y - ROW_H, kw, ROW_H, fill=1, stroke=0)
             c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
             c.drawString(x + 2*rl_mm, row_y - 4*rl_mm,
                          f"{int(row['순위'])}. {row['name_kor']}")
@@ -171,26 +173,90 @@ def make_summary_pdf(rec_cache: dict,
             c.drawRightString(x + kw - 2*rl_mm, row_y - 4*rl_mm,
                               f"{row['추천점수']}점")
             c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6.5)
-            c.drawString(x + 2*rl_mm, row_y - 8*rl_mm,
-                         row.get("form_grp", ""))
-            row_y -= 9*rl_mm
+            c.drawString(x + 2*rl_mm, row_y - 8*rl_mm, row.get("form_grp", ""))
+            row_y -= ROW_H
+
+    # ── 식물 분포도 + 구역 면적 막대그래프 ───────────────────
+    table_bottom = y - 6*rl_mm - 3 * ROW_H
+    y = table_bottom - 8*rl_mm
+    c.setFillColor(INK); c.setFont(_KR_BOLD, 10)
+    c.drawString(M, y, "식물 분포도  &  구역 면적 비율")
+    c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
+    c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
+    y -= 7*rl_mm
+
+    VIZ_H   = 52*rl_mm
+    left_w  = (W - 2*M) * 0.50 - 3*rl_mm
+    right_x = M + left_w + 6*rl_mm
+    right_w = W - M - right_x
+
+    # 왼쪽 — 구역 분류 이미지
+    if zone_png and zone_png.startswith("data:image/png;base64,"):
+        try:
+            raw = _b64.b64decode(zone_png.split(",", 1)[1])
+            img_reader = ImageReader(io.BytesIO(raw))
+            iw, ih = img_reader.getSize()
+            aspect = iw / ih if ih > 0 else 1.0
+            draw_w = min(left_w, VIZ_H * aspect)
+            draw_h = draw_w / aspect
+            c.drawImage(img_reader, M, y - draw_h, draw_w, draw_h,
+                        preserveAspectRatio=True, mask="auto")
+            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6.5)
+            c.drawString(M, y - draw_h - 3.5*rl_mm,
+                         "▲ S1 빨강  S2 주황  S3 노랑  S4 초록")
+        except Exception:
+            c.setFillColor(LGRAY)
+            c.roundRect(M, y - VIZ_H, left_w, VIZ_H, 2*rl_mm, fill=1, stroke=0)
+            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 8)
+            c.drawCentredString(M + left_w / 2, y - VIZ_H / 2, "TIF 분석 후 표시")
+    else:
+        c.setFillColor(LGRAY)
+        c.roundRect(M, y - VIZ_H, left_w, VIZ_H, 2*rl_mm, fill=1, stroke=0)
+        c.setFillColor(MGRAY); c.setFont(_KR_FONT, 8)
+        c.drawCentredString(M + left_w / 2, y - VIZ_H / 2, "TIF 분석 후 표시")
+
+    # 오른쪽 — 구역 면적 가로 막대그래프
+    label_w   = 20*rl_mm
+    pct_w     = 10*rl_mm
+    bar_max_w = right_w - label_w - pct_w
+    bar_row_h = VIZ_H / 4
+
+    for i, s in enumerate(ZONE_CODE):
+        frac  = zone_frac.get(s, 0.0) if zone_frac else 0.0
+        by    = y - (i + 0.5) * bar_row_h
+        bh    = bar_row_h * 0.50
+        # 구역 레이블
+        c.setFillColor(_ZC[s]); c.setFont(_KR_BOLD, 8)
+        c.drawString(right_x, by + bh * 0.15, s)
+        c.setFillColor(INK); c.setFont(_KR_FONT, 7)
+        c.drawString(right_x + 7*rl_mm, by + bh * 0.15,
+                     ZONE_NAME[s].replace(" 구역", ""))
+        # 배경 트랙
+        tx = right_x + label_w
+        c.setFillColor(LGRAY)
+        c.roundRect(tx, by - bh * 0.35, bar_max_w, bh * 0.7,
+                    1*rl_mm, fill=1, stroke=0)
+        # 채워진 바
+        fill_w = max(bar_max_w * frac, 2*rl_mm)
+        c.setFillColor(_ZC[s])
+        c.roundRect(tx, by - bh * 0.35, fill_w, bh * 0.7,
+                    1*rl_mm, fill=1, stroke=0)
+        # 퍼센트
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 8)
+        c.drawString(tx + bar_max_w + 2*rl_mm, by - bh * 0.1,
+                     f"{frac*100:.1f}%")
 
     # ── 분석 통계 ─────────────────────────────────────────
-    y = min(r for r in [row_y] if r) - 8*rl_mm  # type: ignore[name-defined]
+    y = y - VIZ_H - 10*rl_mm
     if exg_mean is not None:
-        c.setFillColor(INK); c.setFont(_KR_BOLD, 9)
-        c.drawString(M, y, "영상 분석 요약")
-        c.setStrokeColor(MGRAY); c.line(M, y - 1.5*rl_mm, W - M, y - 1.5*rl_mm)
-        y -= 6*rl_mm
         c.setFillColor(INK); c.setFont(_KR_FONT, 8)
         c.drawString(M, y,
-            f"ExG 평균: {exg_mean:.3f}   |   식생 피복률: {veg_cover*100:.1f}%")
-        y -= 5*rl_mm
-        c.setFillColor(MGRAY); c.setFont(_KR_FONT, 7)
-        c.drawString(M, y, "※ RGB 드론 영상 기반 추정. LiDAR 미사용. 현장 전문가 검토 필요.")
+            f"ExG 평균: {exg_mean:.3f}   |   식생 피복률: {veg_cover*100:.1f}%"
+            "   |   ※ RGB 기반 추정, LiDAR 미사용")
+        y -= 6*rl_mm
 
     # ── 주의사항 박스 ──────────────────────────────────────
-    y -= 8*rl_mm
+    y -= 2*rl_mm
     c.setFillColor(LGRAY)
     c.roundRect(M, y - 13*rl_mm, W - 2*M, 13*rl_mm, 2*rl_mm, fill=1, stroke=0)
     c.setFillColor(rl_colors.HexColor("#546e7a")); c.setFont(_KR_FONT, 7)
@@ -1203,6 +1269,7 @@ with tab1:
                 _pdf_zone_frac = _layers.get("zone_frac") if _layers else None
                 _pdf_exg       = _layers.get("exg_mean")  if _layers else None
                 _pdf_veg       = _layers.get("veg_cover") if _layers else None
+                _pdf_zone_png  = _layers.get("zone_png")  if _layers else None
                 st.download_button(
                     "전체 구역 요약 PDF",
                     data=make_summary_pdf(
@@ -1211,6 +1278,7 @@ with tab1:
                         zone_frac=_pdf_zone_frac,
                         exg_mean=_pdf_exg,
                         veg_cover=_pdf_veg,
+                        zone_png=_pdf_zone_png,
                     ),
                     file_name=f"ReSeed_전체구역_{today}.pdf",
                     mime="application/pdf",
