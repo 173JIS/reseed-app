@@ -346,6 +346,12 @@ def make_summary_pdf(rec_cache: dict,
 
     chart_bottom = _leg_y - 5*rl_mm
 
+    # 점수 산정 방식 주석
+    c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6)
+    c.drawString(M, chart_bottom - 1*rl_mm,
+                 "※ 점수 산정: 환경 적합 최대 50점 (CSR·생활형 매칭)  +  정착 최대 25점 (SLA 기반)  +  안전 최대 25점 (LDMC 기반)  =  100점 만점")
+    chart_bottom -= 5*rl_mm
+
     # ── 용어 해설 ──────────────────────────────────────────
     y = chart_bottom - 5*rl_mm
     y = section(y, "용어 해설")
@@ -995,14 +1001,33 @@ def score_chart(df: pd.DataFrame, alien_df: pd.DataFrame | None = None) -> go.Fi
     est_hover = "<b>%{y}</b><br>정착: %{x:.0f}점<br><i>SLA 기반 초기 정착력</i><extra></extra>"
     saf_hover = "<b>%{y}</b><br>안전: %{x:.0f}점<br><i>LDMC 기반 장기 생존력</i><extra></extra>"
 
-    fig.add_trace(go.Bar(name="환경 적합 (CSR·생활형)", y=all_names, x=all_env, orientation="h",
-                         marker_color=env_colors, hovertemplate=env_hover))
-    fig.add_trace(go.Bar(name="정착 (SLA·초기 성장)",   y=all_names, x=all_est, orientation="h",
-                         marker_color=est_colors, hovertemplate=est_hover))
-    fig.add_trace(go.Bar(name="안전 (LDMC·생존력)",     y=all_names, x=all_saf, orientation="h",
-                         marker_color=saf_colors, hovertemplate=saf_hover))
+    # 세그먼트 안 숫자 (너무 작으면 빈 문자열)
+    def _seg_txt(vals, threshold=3.5):
+        return [f"{round(v)}" if v >= threshold else "" for v in vals]
 
-    # 총점 레이블 — 막대 끝에 짧게 "86점"만 표시, 상세는 호버로
+    fig.add_trace(go.Bar(
+        name="환경 적합 (CSR·생활형)", y=all_names, x=all_env, orientation="h",
+        marker_color=env_colors, hovertemplate=env_hover,
+        text=_seg_txt(all_env, 5), textposition="inside",
+        textfont=dict(color="white", size=10, family="Arial Black"),
+        insidetextanchor="middle",
+    ))
+    fig.add_trace(go.Bar(
+        name="정착 (SLA·초기 성장)", y=all_names, x=all_est, orientation="h",
+        marker_color=est_colors, hovertemplate=est_hover,
+        text=_seg_txt(all_est, 3.5), textposition="inside",
+        textfont=dict(color="white", size=10, family="Arial Black"),
+        insidetextanchor="middle",
+    ))
+    fig.add_trace(go.Bar(
+        name="안전 (LDMC·생존력)", y=all_names, x=all_saf, orientation="h",
+        marker_color=saf_colors, hovertemplate=saf_hover,
+        text=_seg_txt(all_saf, 3.5), textposition="inside",
+        textfont=dict(color="white", size=10, family="Arial Black"),
+        insidetextanchor="middle",
+    ))
+
+    # 총점 레이블 (막대 끝)
     label_x = [e+es+sa+1 for e,es,sa in zip(all_env, all_est, all_saf)]
     label_t = [f"{s}점" if s is not None else "" for s in all_scores]
     label_c = (["#999"]*len(a_names) + ["rgba(0,0,0,0)"] + ["#333"]*len(names)) if has_alien else ["#333"]*len(names)
@@ -1010,15 +1035,19 @@ def score_chart(df: pd.DataFrame, alien_df: pd.DataFrame | None = None) -> go.Fi
         x=label_x, y=all_names, mode="text", text=label_t,
         textposition="middle right",
         textfont=dict(size=12, color=label_c, family="Arial Black"),
-        showlegend=False,
-        hoverinfo="skip",
+        showlegend=False, hoverinfo="skip",
     ))
     fig.update_layout(
         barmode="stack", height=max(220, n_rows * 36 + 60),
-        margin=dict(l=0, r=55, t=20, b=20),
-        legend=dict(orientation="h", y=1.14, x=0, font=dict(size=11)),
+        margin=dict(l=0, r=55, t=10, b=45),
+        legend=dict(orientation="h", y=1.1, x=0, font=dict(size=11)),
         xaxis=dict(range=[0, 108], title="추천 점수 (100점 만점)", fixedrange=True),
         plot_bgcolor="white",
+        annotations=[dict(
+            xref="paper", yref="paper", x=0, y=-0.12, xanchor="left",
+            text="※ 점수 산정: 환경 적합 최대 50점 (CSR·생활형 매칭) + 정착 최대 25점 (SLA 기반) + 안전 최대 25점 (LDMC 기반) = 100점 만점",
+            font=dict(size=10, color="#666"), showarrow=False,
+        )],
     )
     return fig
 
