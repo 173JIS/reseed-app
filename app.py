@@ -117,44 +117,44 @@ def make_summary_pdf(rec_cache: dict,
     kw = (W - 2*M - 9*rl_mm) / 4
 
     def section(y_, title_):
-        c.setFillColor(INK); c.setFont(_KR_BOLD, 9.5)
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 8.5)
         c.drawString(M, y_, title_)
         c.setStrokeColor(MGRAY); c.setLineWidth(0.4)
-        c.line(M, y_ - 1.5*rl_mm, W - M, y_ - 1.5*rl_mm)
-        return y_ - 7*rl_mm
+        c.line(M, y_ - 1.2*rl_mm, W - M, y_ - 1.2*rl_mm)
+        return y_ - 6*rl_mm
 
-    # ── 헤더 배너 ──────────────────────────────────────────
+    # ── 헤더 배너 (17mm) ──────────────────────────────────
     c.setFillColor(INK)
-    c.rect(0, H - 26*rl_mm, W, 26*rl_mm, fill=1, stroke=0)
-    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 15)
-    c.drawString(M, H - 13*rl_mm, "ReSeed  종합 요약 보고서")
-    c.setFont(_KR_FONT, 8)
+    c.rect(0, H - 17*rl_mm, W, 17*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 11)
+    c.drawString(M, H - 8*rl_mm, "ReSeed  종합 요약 보고서")
+    c.setFont(_KR_FONT, 7)
     area_str = f"{meta['area_ha']:.2f} ha  |  " if meta else ""
-    c.drawString(M, H - 21*rl_mm, f"{area_str}{today_str}  |  InvaLab")
+    c.drawString(M, H - 14*rl_mm, f"{area_str}{today_str}  |  InvaLab")
     c.setFillColor(DGREEN)
-    c.rect(W - 26*rl_mm, H - 26*rl_mm, 26*rl_mm, 26*rl_mm, fill=1, stroke=0)
-    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
-    c.drawCentredString(W - 13*rl_mm, H - 13*rl_mm, "v1.0")
-    c.setFont(_KR_FONT, 6.5)
-    c.drawCentredString(W - 13*rl_mm, H - 19*rl_mm, "ReSeed / InvaLab")
+    c.rect(W - 17*rl_mm, H - 17*rl_mm, 17*rl_mm, 17*rl_mm, fill=1, stroke=0)
+    c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
+    c.drawCentredString(W - 8.5*rl_mm, H - 8*rl_mm, "v1.0")
+    c.setFont(_KR_FONT, 5.5)
+    c.drawCentredString(W - 8.5*rl_mm, H - 13*rl_mm, "InvaLab")
 
-    # ── KPI 박스 ──────────────────────────────────────────
-    y = H - 40*rl_mm
+    # ── KPI 박스 (10mm) ──────────────────────────────────
+    y = H - 30*rl_mm
     for i, s in enumerate(ZONE_CODE):
         x       = M + i * (kw + 3*rl_mm)
         frac    = zone_frac.get(s, 0.0) if zone_frac else None
         val_str = f"{frac*100:.1f}%" if frac is not None else "—"
         c.setFillColor(LGRAY)
-        c.roundRect(x, y - 14*rl_mm, kw, 14*rl_mm, 2.5*rl_mm, fill=1, stroke=0)
+        c.roundRect(x, y - 10*rl_mm, kw, 10*rl_mm, 2*rl_mm, fill=1, stroke=0)
         c.setFillColor(_ZC[s])
-        c.roundRect(x, y - 5*rl_mm, kw, 5*rl_mm, 2.5*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7)
-        c.drawCentredString(x + kw/2, y - 3.5*rl_mm, f"{s}  {ZONE_NAME[s]}")
-        c.setFillColor(INK); c.setFont(_KR_BOLD, 13)
-        c.drawCentredString(x + kw/2, y - 10.5*rl_mm, val_str)
+        c.roundRect(x, y - 4*rl_mm, kw, 4*rl_mm, 2*rl_mm, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
+        c.drawCentredString(x + kw/2, y - 2.8*rl_mm, f"{s}  {ZONE_NAME[s]}")
+        c.setFillColor(INK); c.setFont(_KR_BOLD, 11)
+        c.drawCentredString(x + kw/2, y - 8*rl_mm, val_str)
 
     # ── 구역별 추천 종 세부점수 표 ────────────────────────────
-    y -= 20*rl_mm
+    y -= 10*rl_mm
     y = section(y, "구역별 추천 종  Top 3  (환경 적합 / 정착 / 안전 / 총점)")
 
     # 열 너비 (kw 내)
@@ -163,9 +163,9 @@ def make_summary_pdf(rec_cache: dict,
     _TA = 6*rl_mm    # 정착
     _TS = 6*rl_mm    # 안전
     _TT = kw - _TN - _TE - _TA - _TS   # 총점(나머지)
-    _HDR_H = 5.5*rl_mm  # 구역 헤더 높이
-    _SHD_H = 4*rl_mm    # 컬럼 서브헤더 높이
-    _ROW_H = 7*rl_mm    # 데이터 행 높이
+    _HDR_H = 4*rl_mm    # 구역 헤더 높이
+    _SHD_H = 3*rl_mm    # 컬럼 서브헤더 높이
+    _ROW_H = 5*rl_mm    # 데이터 행 높이
 
     for i, s in enumerate(ZONE_CODE):
         x    = M + i * (kw + 3*rl_mm)
@@ -174,14 +174,14 @@ def make_summary_pdf(rec_cache: dict,
         # 구역 헤더
         c.setFillColor(_ZC[s])
         c.roundRect(x, y - _HDR_H, kw, _HDR_H, 2*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
+        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
         c.drawCentredString(x + kw/2, y - _HDR_H*0.65, ZONE_NAME[s])
 
         # 컬럼 서브헤더
         shy = y - _HDR_H
         c.setFillColor(INK)
         c.rect(x, shy - _SHD_H, kw, _SHD_H, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_FONT, 5.5)
+        c.setFillColor(WHITE); c.setFont(_KR_FONT, 5)
         for ht, hx_off, hw in [("종명", 0, _TN), ("환경", _TN, _TE),
                                 ("정착", _TN+_TE, _TA), ("안전", _TN+_TE+_TA, _TS),
                                 ("총점", _TN+_TE+_TA+_TS, _TT)]:
@@ -205,8 +205,8 @@ def make_summary_pdf(rec_cache: dict,
             c.rect(x, ry - _ROW_H, kw, _ROW_H, fill=1, stroke=0)
 
             # 종명
-            c.setFillColor(INK); c.setFont(_KR_FONT, 6.5)
-            c.drawString(x + 1.5*rl_mm, ry - _ROW_H*0.6,
+            c.setFillColor(INK); c.setFont(_KR_FONT, 5.8)
+            c.drawString(x + 1.5*rl_mm, ry - _ROW_H*0.62,
                          f"{int(row['순위'])}. {row['name_kor']}")
 
             # 세부점수
@@ -216,8 +216,8 @@ def make_summary_pdf(rec_cache: dict,
                 (str(saf_pt), _TN+_TE+_TA,   _TS, C_SAF),
                 (f"{total}점",_TN+_TE+_TA+_TS, _TT, _ZC[s]),
             ]:
-                c.setFillColor(col); c.setFont(_KR_BOLD, 7)
-                c.drawCentredString(x + hx_off + hw/2, ry - _ROW_H*0.6, val)
+                c.setFillColor(col); c.setFont(_KR_BOLD, 6)
+                c.drawCentredString(x + hx_off + hw/2, ry - _ROW_H*0.62, val)
 
             # 구분선
             c.setStrokeColor(MGRAY); c.setLineWidth(0.2)
@@ -227,10 +227,10 @@ def make_summary_pdf(rec_cache: dict,
     table_bottom = y - _HDR_H - _SHD_H - 3 * _ROW_H
 
     # ── 식물 분포도 + 구역 면적 막대그래프 ───────────────────
-    y = table_bottom - 6*rl_mm
+    y = table_bottom - 4*rl_mm
     y = section(y, "식물 분포도  &  구역 면적 비율")
 
-    VIZ_H  = 68*rl_mm
+    VIZ_H  = 40*rl_mm
     left_w = (W - 2*M) * 0.52 - 3*rl_mm
     rx     = M + left_w + 6*rl_mm
     rw     = W - M - rx
@@ -280,22 +280,22 @@ def make_summary_pdf(rec_cache: dict,
         c.drawString(tx + bmax + 2*rl_mm, by - bh * 0.1, f"{frac*100:.1f}%")
 
     # ── 추천 점수 구성 (수평 스택 막대, 2×2 패널) ─────────────
-    y = y - VIZ_H - 6*rl_mm
+    y = y - VIZ_H - 4*rl_mm
     y = section(y, "추천 점수 구성  (환경 적합 · 정착 · 안전 세부 점수, 100점 만점)")
 
     # 패널 치수
-    _GAP    = 5*rl_mm
+    _GAP    = 4*rl_mm
     _PW     = (W - 2*M - _GAP) / 2    # 패널 너비 ≈88 mm
-    _LBL    = 20*rl_mm                 # 종명 라벨
-    _SCR    = 10*rl_mm                 # 우측 총점 칸
+    _LBL    = 18*rl_mm                 # 종명 라벨
+    _SCR    = 9*rl_mm                  # 우측 총점 칸
     _BAR    = _PW - _LBL - _SCR       # 바 실제 너비
-    _SP     = 5.8*rl_mm               # 종 행 높이
-    _PHDR   = 5.5*rl_mm               # 구역 헤더 높이
-    _AXH    = 4*rl_mm                 # X축 높이
-    _NSHOW  = 7                       # 구역당 최대 종 수
-    _PH     = _PHDR + _NSHOW * _SP + _AXH   # 패널 전체 높이 ≈47 mm
+    _SP     = 4.5*rl_mm               # 종 행 높이
+    _PHDR   = 4.5*rl_mm               # 구역 헤더 높이
+    _AXH    = 3*rl_mm                 # X축 높이
+    _NSHOW  = 4                        # 구역당 최대 종 수
+    _PH     = _PHDR + _NSHOW * _SP + _AXH   # 패널 전체 높이 ≈25 mm
 
-    # 남은 공간 부족 시 새 페이지
+    # 남은 공간 부족 시 새 페이지 (여기서는 발생 안 해야 함)
     _needed = 2 * _PH + _GAP + 10*rl_mm
     if y - _needed < M + 28*rl_mm:
         c.showPage()
@@ -353,27 +353,27 @@ def make_summary_pdf(rec_cache: dict,
                 c.rect(_px, _ry - _SP, _PW, _SP, fill=1, stroke=0)
 
                 # 종명
-                c.setFillColor(INK); c.setFont(_KR_FONT, 6.2)
+                c.setFillColor(INK); c.setFont(_KR_FONT, 5.5)
                 c.drawString(_px + 1.5*rl_mm, _ry - _SP*0.62, _row["name_kor"][:8])
 
                 # 환경 적합 바 (초록) — 항상 표기, 바 밖으로 나와도 무방
                 _bx = _px + _LBL
                 c.setFillColor(C_ENV); c.rect(_bx, _by, _ew, _bh, fill=1, stroke=0)
-                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
-                c.drawCentredString(_bx + _ew/2, _by + _bh*0.18, str(round(_es*50)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5.5)
+                c.drawCentredString(_bx + _ew/2, _by + _bh*0.15, str(round(_es*50)))
 
                 # 정착 바 (파랑)
                 c.setFillColor(C_EST); c.rect(_bx+_ew, _by, _tw, _bh, fill=1, stroke=0)
-                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
-                c.drawCentredString(_bx+_ew + _tw/2, _by + _bh*0.18, str(round(_ets*25)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5.5)
+                c.drawCentredString(_bx+_ew + _tw/2, _by + _bh*0.15, str(round(_ets*25)))
 
                 # 안전 바 (주황)
                 c.setFillColor(C_SAF); c.rect(_bx+_ew+_tw, _by, _sw, _bh, fill=1, stroke=0)
-                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6.5)
-                c.drawCentredString(_bx+_ew+_tw + _sw/2, _by + _bh*0.18, str(round(_ss*25)))
+                c.setFillColor(WHITE); c.setFont(_KR_BOLD, 5.5)
+                c.drawCentredString(_bx+_ew+_tw + _sw/2, _by + _bh*0.15, str(round(_ss*25)))
 
                 # 총점 (우측 칸)
-                c.setFillColor(_ZC[_s]); c.setFont(_KR_BOLD, 7)
+                c.setFillColor(_ZC[_s]); c.setFont(_KR_BOLD, 6.5)
                 c.drawCentredString(_px + _PW - _SCR/2, _ry - _SP*0.62, f"{_tot}점")
 
     # 범례
@@ -409,13 +409,13 @@ def make_summary_pdf(rec_cache: dict,
     half = (W - 2*M - 4*rl_mm) / 2
     for idx, (term, desc) in enumerate(GLOSSARY):
         gx = M if idx % 2 == 0 else M + half + 4*rl_mm
-        gy = y - (idx // 2) * 8.5*rl_mm
+        gy = y - (idx // 2) * 7*rl_mm
         c.setFillColor(DGREEN); c.setFont(_KR_BOLD, 7)
         c.drawString(gx, gy, term)
         c.setFillColor(SGRAY); c.setFont(_KR_FONT, 6.8)
         c.drawString(gx, gy - 3.8*rl_mm, desc)
 
-    glossary_bottom = y - ((len(GLOSSARY) + 1) // 2) * 8.5*rl_mm
+    glossary_bottom = y - ((len(GLOSSARY) + 1) // 2) * 7*rl_mm
 
     # ── 분석 통계 한 줄 ───────────────────────────────────
     y = glossary_bottom - 4*rl_mm
@@ -437,7 +437,7 @@ def make_summary_pdf(rec_cache: dict,
         "추천 종: 59종 라이브러리 기준 (SLA·LDMC·CSR 실형질). op_sourcing 현재 임시값 사용 중.")
 
     # ── 푸터 ──────────────────────────────────────────────
-    FOOTER_H  = 14*rl_mm
+    FOOTER_H  = 11*rl_mm
     LOGO_AREA = 42*rl_mm   # 로고 영역 너비
 
     c.setFillColor(DGREEN)
