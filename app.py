@@ -102,9 +102,9 @@ def make_summary_pdf(rec_cache: dict,
     W, H = A4
     M = 14 * rl_mm
 
-    INK   = rl_colors.HexColor("#023047")
-    BLUE  = rl_colors.HexColor("#0000FF")
-    LGRAY = rl_colors.HexColor("#F4F6F8")
+    INK    = rl_colors.HexColor("#023047")
+    DGREEN = rl_colors.HexColor("#14351A")
+    LGRAY  = rl_colors.HexColor("#F4F6F8")
     MGRAY = rl_colors.HexColor("#B0BEC5")
     SGRAY = rl_colors.HexColor("#546e7a")
     WHITE = rl_colors.white
@@ -127,16 +127,16 @@ def make_summary_pdf(rec_cache: dict,
     c.setFillColor(INK)
     c.rect(0, H - 26*rl_mm, W, 26*rl_mm, fill=1, stroke=0)
     c.setFillColor(WHITE); c.setFont(_KR_BOLD, 15)
-    c.drawString(M, H - 13*rl_mm, "ReSeed  드론 시드볼 파종 의사결정 보고서")
+    c.drawString(M, H - 13*rl_mm, "ReSeed  종합 요약 보고서")
     c.setFont(_KR_FONT, 8)
     area_str = f"{meta['area_ha']:.2f} ha  |  " if meta else ""
-    c.drawString(M, H - 21*rl_mm, f"{area_str}{today_str}  |  Invalab")
-    c.setFillColor(BLUE)
+    c.drawString(M, H - 21*rl_mm, f"{area_str}{today_str}  |  InvaLab")
+    c.setFillColor(DGREEN)
     c.rect(W - 26*rl_mm, H - 26*rl_mm, 26*rl_mm, 26*rl_mm, fill=1, stroke=0)
     c.setFillColor(WHITE); c.setFont(_KR_BOLD, 7.5)
     c.drawCentredString(W - 13*rl_mm, H - 13*rl_mm, "v1.0")
     c.setFont(_KR_FONT, 6.5)
-    c.drawCentredString(W - 13*rl_mm, H - 19*rl_mm, "ReSeed / Invalab")
+    c.drawCentredString(W - 13*rl_mm, H - 19*rl_mm, "ReSeed / InvaLab")
 
     # ── KPI 박스 ──────────────────────────────────────────
     y = H - 40*rl_mm
@@ -410,7 +410,7 @@ def make_summary_pdf(rec_cache: dict,
     for idx, (term, desc) in enumerate(GLOSSARY):
         gx = M if idx % 2 == 0 else M + half + 4*rl_mm
         gy = y - (idx // 2) * 8.5*rl_mm
-        c.setFillColor(BLUE); c.setFont(_KR_BOLD, 7)
+        c.setFillColor(DGREEN); c.setFont(_KR_BOLD, 7)
         c.drawString(gx, gy, term)
         c.setFillColor(SGRAY); c.setFont(_KR_FONT, 6.8)
         c.drawString(gx, gy - 3.8*rl_mm, desc)
@@ -436,33 +436,52 @@ def make_summary_pdf(rec_cache: dict,
     c.drawString(M + 3*rl_mm, y - 8.5*rl_mm,
         "추천 종: 59종 라이브러리 기준 (SLA·LDMC·CSR 실형질). op_sourcing 현재 임시값 사용 중.")
 
-    # ── 푸터 + 로고 ────────────────────────────────────────
-    FOOTER_H = 12*rl_mm
-    c.setFillColor(INK)
+    # ── 푸터 ──────────────────────────────────────────────
+    FOOTER_H  = 14*rl_mm
+    LOGO_AREA = 42*rl_mm   # 로고 영역 너비
+
+    c.setFillColor(DGREEN)
     c.rect(0, 0, W, FOOTER_H, fill=1, stroke=0)
 
-    # 로고: 이미지 있으면 삽입, 없으면 텍스트 배지
+    # 로고: PNG 있으면 흰 배경 패드 후 삽입, 없으면 텍스트 배지
+    _logo_candidates = [
+        logo_path,
+        str(Path(__file__).parent / "assets" / "invalab_logo.png"),
+        r"C:\Users\Intern\OneDrive\Desktop\ReSeed\ReSeed_py\assets\invalab_logo.png",
+    ]
     logo_drawn = False
-    if logo_path and Path(logo_path).exists():
-        try:
-            lr = ImageReader(logo_path)
-            lw, lh = lr.getSize()
-            logo_h = FOOTER_H * 0.75
-            logo_w = logo_h * lw / lh
-            c.drawImage(lr, M, (FOOTER_H - logo_h) / 2,
-                        logo_w, logo_h, preserveAspectRatio=True, mask="auto")
-            logo_drawn = True
-        except Exception:
-            pass
+    for _lp in _logo_candidates:
+        if _lp and Path(_lp).exists():
+            try:
+                lr    = ImageReader(_lp)
+                lw, lh = lr.getSize()
+                logo_h = FOOTER_H * 0.72
+                logo_w = logo_h * lw / lh
+                pad    = 1.5*rl_mm
+                # 흰 배경 패드
+                c.setFillColor(WHITE)
+                c.roundRect(M - pad, (FOOTER_H - logo_h)/2 - pad,
+                            logo_w + pad*2, logo_h + pad*2,
+                            1.2*rl_mm, fill=1, stroke=0)
+                c.drawImage(lr, M, (FOOTER_H - logo_h)/2,
+                            logo_w, logo_h,
+                            preserveAspectRatio=True, mask="auto")
+                logo_drawn = True
+                break
+            except Exception:
+                pass
     if not logo_drawn:
-        c.setFillColor(BLUE)
-        c.roundRect(M, 1.8*rl_mm, 24*rl_mm, 8.5*rl_mm, 1.5*rl_mm, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont(_KR_BOLD, 9.5)
-        c.drawCentredString(M + 12*rl_mm, 4.8*rl_mm, "INVALAB")
+        # 흰 배경 텍스트 배지
+        c.setFillColor(WHITE)
+        c.roundRect(M, 2*rl_mm, LOGO_AREA, FOOTER_H - 4*rl_mm,
+                    1.5*rl_mm, fill=1, stroke=0)
+        c.setFillColor(DGREEN); c.setFont(_KR_BOLD, 11)
+        c.drawCentredString(M + LOGO_AREA/2, FOOTER_H/2 - 2*rl_mm, "InvaLab")
 
     c.setFillColor(WHITE); c.setFont(_KR_FONT, 7)
-    c.drawString(M + 27*rl_mm, 5*rl_mm, "ReSeed Project  |  내부용")
-    c.drawRightString(W - M, 5*rl_mm, today_str)
+    c.drawString(M + LOGO_AREA + 4*rl_mm, FOOTER_H/2 - 1*rl_mm,
+                 "ReSeed Project  |  생태 복원 의사결정 지원 시스템")
+    c.drawRightString(W - M, FOOTER_H/2 - 1*rl_mm, today_str)
 
     c.save()
     return buf.getvalue()
@@ -1048,27 +1067,37 @@ def score_chart(df: pd.DataFrame, alien_df: pd.DataFrame | None = None) -> go.Fi
     est_txt = [f"{round(v)}" for v in all_est]
     saf_txt = [f"{round(v)}" for v in all_saf]
 
+    # 데이터 트레이스 (showlegend=False — 범례는 아래 더미 Scatter로 표시)
     fig.add_trace(go.Bar(
         name="환경 적합 (CSR·생활형)", y=all_names, x=all_env, orientation="h",
         marker_color=env_colors, hovertemplate=env_hover,
         text=env_txt, textposition="inside", constraintext="none",
         textfont=dict(color="white", size=11, family="Arial Black"),
-        insidetextanchor="middle",
+        insidetextanchor="middle", showlegend=False,
     ))
     fig.add_trace(go.Bar(
         name="정착 (SLA·초기 성장)", y=all_names, x=all_est, orientation="h",
         marker_color=est_colors, hovertemplate=est_hover,
         text=est_txt, textposition="inside", constraintext="none",
         textfont=dict(color="white", size=11, family="Arial Black"),
-        insidetextanchor="middle",
+        insidetextanchor="middle", showlegend=False,
     ))
     fig.add_trace(go.Bar(
         name="안전 (LDMC·생존력)", y=all_names, x=all_saf, orientation="h",
         marker_color=saf_colors, hovertemplate=saf_hover,
         text=saf_txt, textposition="inside", constraintext="none",
         textfont=dict(color="white", size=11, family="Arial Black"),
-        insidetextanchor="middle",
+        insidetextanchor="middle", showlegend=False,
     ))
+    # 범례 전용 더미 트레이스 (x=None → 차트에 안 보임, 범례 색만 정확히 표시)
+    for _ln, _lc in [("환경 적합 (CSR·생활형)", "#2e7d32"),
+                     ("정착 (SLA·초기 성장)",   "#1e88e5"),
+                     ("안전 (LDMC·생존력)",     "#ef6c00")]:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(symbol="square", size=12, color=_lc),
+            name=_ln, showlegend=True, hoverinfo="skip",
+        ))
 
     # 총점 레이블 (막대 끝)
     label_x = [e+es+sa+1 for e,es,sa in zip(all_env, all_est, all_saf)]
@@ -1339,48 +1368,50 @@ with tab1:
 
             st.divider()
 
-            # ── 전체 구역 요약 카드 (세부점수 표) ───────────────
+            # ── 전체 구역 요약 카드 ──────────────────────────────
             st.markdown("**🗺 전체 복원 구역 요약 — 구역별 추천 Top 3**")
             card_cols = st.columns(4)
             for i, s in enumerate(ZONE_CODE):
-                top3 = rec_cache[s].head(3)
+                top3  = rec_cache[s].head(3)
                 color = ZONE_PAL[s]
                 with card_cols[i]:
-                    # 헤더
-                    html = (f'<div style="background:#fafafa;border-left:4px solid {color};'
-                            f'border-radius:4px;padding:10px 12px;">'
-                            f'<div style="font-weight:bold;color:{color};font-size:13px;margin-bottom:2px;">'
-                            f'{ZONE_NAME[s]}</div>'
-                            f'<div style="font-size:11px;color:#777;margin-bottom:8px;">{ZONE_DESC[s]}</div>')
-                    # 표 헤더행
-                    th = ('background:#f0f0f0;font-size:10px;color:#555;'
-                          'padding:3px 4px;text-align:right;')
-                    th_l = th.replace('text-align:right', 'text-align:left')
-                    html += (f'<table style="width:100%;border-collapse:collapse;font-size:11px;">'
-                             f'<tr>'
-                             f'<th style="{th_l}">종명</th>'
-                             f'<th style="{th}" title="환경 적합 최대 50점">환경</th>'
-                             f'<th style="{th}" title="정착 최대 25점">정착</th>'
-                             f'<th style="{th}" title="안전 최대 25점">안전</th>'
-                             f'<th style="{th}" title="총점 100점 만점">총점</th>'
-                             f'</tr>')
-                    # 데이터 행
+                    # 배지 스타일 헬퍼
+                    def _badge(val, bg, label=""):
+                        return (f'<span style="display:inline-block;'
+                                f'background:{bg};color:#fff;'
+                                f'font-size:10px;font-weight:700;'
+                                f'padding:1px 5px;border-radius:3px;'
+                                f'margin-right:2px;">'
+                                f'{label}{val}</span>')
+
+                    html = (f'<div style="background:#fafafa;'
+                            f'border-top:3px solid {color};'
+                            f'border-radius:6px;padding:10px 12px;'
+                            f'box-shadow:0 1px 4px rgba(0,0,0,.08);">'
+                            f'<div style="font-weight:700;color:{color};'
+                            f'font-size:12px;margin-bottom:2px;">{ZONE_NAME[s]}</div>'
+                            f'<div style="font-size:10px;color:#888;'
+                            f'margin-bottom:10px;">{ZONE_DESC[s]}</div>')
+
                     for ri, (_, row) in enumerate(top3.iterrows()):
-                        env_pt = round(float(row.get("환경적합", 0.5)) * 50)
+                        env_pt = round(float(row.get("환경적합",        0.5)) * 50)
                         est_pt = round(float(row.get("op_establishment", 0.5)) * 25)
-                        saf_pt = round(float(row.get("op_safe_growth", 0.5)) * 25)
+                        saf_pt = round(float(row.get("op_safe_growth",   0.5)) * 25)
                         total  = int(row["추천점수"])
-                        bg = '#ffffff' if ri % 2 == 0 else '#f7f7f7'
-                        td = f'background:{bg};padding:4px 4px;text-align:right;'
-                        td_l = td.replace('text-align:right', 'text-align:left')
-                        html += (f'<tr>'
-                                 f'<td style="{td_l}">{int(row["순위"])}. {row["name_kor"]}</td>'
-                                 f'<td style="{td};color:#2e7d32;font-weight:600;">{env_pt}</td>'
-                                 f'<td style="{td};color:#1e88e5;font-weight:600;">{est_pt}</td>'
-                                 f'<td style="{td};color:#ef6c00;font-weight:600;">{saf_pt}</td>'
-                                 f'<td style="{td};color:{color};font-weight:700;">{total}점</td>'
-                                 f'</tr>')
-                    html += '</table>'
+                        sep    = 'border-bottom:1px solid #eee;' if ri < 2 else ''
+                        html += (f'<div style="padding:6px 0;{sep}">'
+                                 f'<div style="font-size:12px;font-weight:600;'
+                                 f'color:#222;margin-bottom:4px;">'
+                                 f'{int(row["순위"])}. {row["name_kor"]}'
+                                 f'<span style="float:right;font-weight:700;'
+                                 f'color:{color};font-size:13px;">{total}점</span></div>'
+                                 f'<div style="font-size:10px;line-height:1.8;">'
+                                 + _badge(env_pt, "#2e7d32", "환경 ")
+                                 + _badge(est_pt, "#1e88e5", "정착 ")
+                                 + _badge(saf_pt, "#ef6c00", "안전 ")
+                                 + f'</div></div>')
+
+                    html += '</div>'
                     # 외래종 참고 섹션 (구역 풀에 외래종이 있을 때만)
                     aliens = alien_cache.get(s, pd.DataFrame())
                     if not aliens.empty:
@@ -1519,6 +1550,7 @@ with tab1:
                         exg_mean=_pdf_exg,
                         veg_cover=_pdf_veg,
                         zone_png=_pdf_zone_png,
+                        logo_path=str(Path(__file__).parent / "assets" / "invalab_logo.png"),
                     ),
                     file_name=f"ReSeed_전체구역_{today}.pdf",
                     mime="application/pdf",
