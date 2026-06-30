@@ -18,11 +18,11 @@ import rasterio
 import rasterio.transform
 from rasterio.warp import transform_bounds
 import folium
-from streamlit_folium import st_folium
 from branca.element import MacroElement
 from jinja2 import Template as JinjaTemplate
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 
 # ── 경로 설정 ──────────────────────────────────────────────
@@ -859,7 +859,7 @@ with tab1:
                 folium_map = build_map(meta, lib, spacing_m,
                                       layers=_layers,
                                       tops=tops)
-            st_folium(folium_map, height=520, use_container_width=True, returned_objects=[])
+            components.html(folium_map._repr_html_(), height=520, scrolling=False)
             with st.expander("🗺 지도 레이어 설명"):
                 st.markdown(
                     "지도 우상단 레이어 컨트롤에서 각 레이어를 켜고 끌 수 있습니다.\n\n"
