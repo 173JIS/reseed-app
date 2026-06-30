@@ -226,6 +226,10 @@ def make_summary_pdf(rec_cache: dict,
     # ── 식물 분포도 + 구역 면적 막대그래프 ───────────────────
     y = table_bottom - 4*rl_mm
     y = section(y, "식물 분포도  &  구역 면적 비율")
+    # 범례: 섹션 제목 바로 아래 작은 글씨
+    c.setFillColor(MGRAY); c.setFont(_KR_FONT, 5)
+    c.drawString(M, y + 2.5*rl_mm,
+                 "▲ S1 빨강(긴급안정화)  S2 주황(개척파종)  S3 노랑(천이촉진)  S4 초록(하층보완)")
 
     VIZ_H  = 52*rl_mm
     left_w = (W - 2*M) * 0.52 - 3*rl_mm
@@ -242,10 +246,6 @@ def make_summary_pdf(rec_cache: dict,
             dh     = dw / asp
             c.drawImage(ir, M, y - dh, dw, dh,
                         preserveAspectRatio=True, mask="auto")
-            _leg_txt_y = max(y - dh - 3*rl_mm, y - VIZ_H + 3*rl_mm)
-            c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6)
-            c.drawString(M, _leg_txt_y,
-                         "▲ S1 빨강(긴급안정화)  S2 주황(개척파종)  S3 노랑(천이촉진)  S4 초록(하층보완)")
         except Exception:
             c.setFillColor(LGRAY)
             c.roundRect(M, y - VIZ_H, left_w, VIZ_H, 2*rl_mm, fill=1, stroke=0)
