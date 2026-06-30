@@ -124,15 +124,13 @@ def make_summary_pdf(rec_cache: dict,
         return y_ - 6*rl_mm
 
     # ── 헤더 배너 (17mm) ──────────────────────────────────
-    c.setFillColor(INK)
+    c.setFillColor(DGREEN)
     c.rect(0, H - 17*rl_mm, W, 17*rl_mm, fill=1, stroke=0)
     c.setFillColor(WHITE); c.setFont(_KR_BOLD, 10)
     c.drawString(M, H - 8*rl_mm, "ReSeed  종합 요약 보고서")
     c.setFont(_KR_FONT, 6.5)
     area_str = f"{meta['area_ha']:.2f} ha  |  " if meta else ""
     c.drawString(M, H - 14*rl_mm, f"{area_str}{today_str}  |  InvaLab")
-    c.setFillColor(DGREEN)
-    c.rect(W - 17*rl_mm, H - 17*rl_mm, 17*rl_mm, 17*rl_mm, fill=1, stroke=0)
     c.setFillColor(WHITE); c.setFont(_KR_BOLD, 6)
     c.drawCentredString(W - 8.5*rl_mm, H - 8*rl_mm, "v1.0")
     c.setFont(_KR_FONT, 5)
@@ -181,17 +179,16 @@ def make_summary_pdf(rec_cache: dict,
         shy = y - _HDR_H
         c.setFillColor(INK)
         c.rect(x, shy - _SHD_H, kw, _SHD_H, fill=1, stroke=0)
+        # 컬럼 색 힌트 (1.2mm 띠) — 텍스트보다 먼저 그려야 텍스트가 위에 표시됨
+        for hx_off, hw, hc in [(_TN, _TE, C_ENV), (_TN+_TE, _TA, C_EST),
+                                (_TN+_TE+_TA, _TS, C_SAF), (_TN+_TE+_TA+_TS, _TT, _ZC[s])]:
+            c.setFillColor(hc)
+            c.rect(x + hx_off, shy - _SHD_H, hw, 1.2*rl_mm, fill=1, stroke=0)
         c.setFillColor(WHITE); c.setFont(_KR_FONT, 5)
         for ht, hx_off, hw in [("종명", 0, _TN), ("환경", _TN, _TE),
                                 ("정착", _TN+_TE, _TA), ("안전", _TN+_TE+_TA, _TS),
                                 ("총점", _TN+_TE+_TA+_TS, _TT)]:
             c.drawCentredString(x + hx_off + hw/2, shy - _SHD_H*0.65, ht)
-
-        # 컬럼 색 힌트 (1.2mm 띠)
-        for hx_off, hw, hc in [(_TN, _TE, C_ENV), (_TN+_TE, _TA, C_EST),
-                                (_TN+_TE+_TA, _TS, C_SAF), (_TN+_TE+_TA+_TS, _TT, _ZC[s])]:
-            c.setFillColor(hc)
-            c.rect(x + hx_off, shy - _SHD_H, hw, 1.2*rl_mm, fill=1, stroke=0)
 
         # 데이터 행
         ry = shy - _SHD_H
@@ -245,8 +242,9 @@ def make_summary_pdf(rec_cache: dict,
             dh     = dw / asp
             c.drawImage(ir, M, y - dh, dw, dh,
                         preserveAspectRatio=True, mask="auto")
+            _leg_txt_y = max(y - dh - 3*rl_mm, y - VIZ_H + 3*rl_mm)
             c.setFillColor(MGRAY); c.setFont(_KR_FONT, 6)
-            c.drawString(M, y - dh - 3*rl_mm,
+            c.drawString(M, _leg_txt_y,
                          "▲ S1 빨강(긴급안정화)  S2 주황(개척파종)  S3 노랑(천이촉진)  S4 초록(하층보완)")
         except Exception:
             c.setFillColor(LGRAY)
